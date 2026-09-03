@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import DISCLAIMER, settings
 from .ingest import SUPPORTED_SUFFIXES, UnsupportedFormat, load_and_chunk
+from .sections import TOPIC_FILTERS, TOPIC_LABELS, resolve_topics
 from .rag import answer_question
 from .schemas import (
     AskRequest,
@@ -89,6 +90,7 @@ def ask(payload: AskRequest) -> AskResponse:
             document=hit["document"],
             document_id=hit["document_id"],
             locator=hit["locator"],
+            chapter=hit.get("chapter", ""),
             page=hit["page"],
             chunk_id=hit["chunk_id"],
             score=hit["score"],
@@ -126,8 +128,19 @@ async def upload_document(
     title: str = Form(""),
     note: str = Form(""),
     replace: bool = Form(False),
+    exclude_topics: str = Form(""),
 ) -> UploadResponse:
-    """Загрузить новый документ или обновить существующий (по совпадению названия)."""
+    """Загрузить новый документ или обновить существующий (по совпадению названия).
+
+    ``exclude_topics`` — список тем через запятую (см. GET /api/admin/topics).
+    Разделы и главы с такими заголовками не попадают в индекс: так ассистент по
+    углеводородам не отвечает нормами про уран или твёрдые полезные ископаемые.
+    """
+    try:
+        topics = resolve_topics(exclude_topics.split(","))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     filename = Path(file.filename or "document").name
     suffix = Path(filename).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
@@ -161,7 +174,9 @@ async def upload_document(
         )
 
     try:
-        chunks = load_and_chunk(target, settings.chunk_size, settings.chunk_overlap)
+        chunks, dropped = load_and_chunk(
+            target, settings.chunk_size, settings.chunk_overlap, topics
+        )
         pages = max((c.page for c in chunks if c.page), default=None)
         record = store.add_document(
             title=doc_title,
@@ -171,6 +186,8 @@ async def upload_document(
             pages=pages,
             note=note.strip(),
             doc_id=doc_id,
+            excluded_topics=topics,
+            dropped_sections=[d.heading for d in dropped],
         )
     except UnsupportedFormat as exc:
         target.unlink(missing_ok=True)
@@ -187,6 +204,17 @@ def delete_document(doc_id: str) -> dict:
     if not get_store().delete_document(doc_id):
         raise HTTPException(status_code=404, detail="Документ не найден.")
     return {"deleted": doc_id}
+
+
+@app.get("/api/admin/topics", dependencies=[Depends(require_admin)])
+def available_topics() -> dict:
+    """Темы, которые можно исключить при загрузке документа."""
+    return {
+        "topics": [
+            {"name": name, "label": TOPIC_LABELS.get(name, name)}
+            for name in sorted(TOPIC_FILTERS)
+        ]
+    }
 
 
 @app.post("/api/admin/search", dependencies=[Depends(require_admin)])

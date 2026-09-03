@@ -27,6 +27,32 @@
     $('panel').classList.toggle('hidden', !visible);
   }
 
+  async function loadTopics() {
+    const box = $('topics');
+    box.textContent = '';
+    const { topics } = await api('/api/admin/topics');
+    topics.forEach((topic) => {
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;gap:8px;align-items:center;margin:4px 0';
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = topic.name;
+      input.name = 'topic';
+      input.style.width = 'auto';
+      // Уран исключается по умолчанию: ассистент предметный, по углеводородам.
+      input.checked = topic.name !== 'underground_space';
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(topic.label));
+      box.appendChild(label);
+    });
+  }
+
+  function selectedTopics() {
+    return Array.from(document.querySelectorAll('#topics input[name=topic]:checked'))
+      .map((input) => input.value)
+      .join(',');
+  }
+
   async function refresh() {
     const stats = await api('/api/admin/stats');
     $('stats').textContent =
@@ -55,6 +81,13 @@
       file.textContent = `${doc.filename} (${Math.round(doc.size_bytes / 1024)} КБ)`;
       const chunks = document.createElement('td');
       chunks.textContent = doc.chunks;
+      if (doc.dropped_sections && doc.dropped_sections.length) {
+        const dropped = document.createElement('div');
+        dropped.className = 'muted';
+        dropped.textContent = `исключено разделов: ${doc.dropped_sections.length}`;
+        dropped.title = doc.dropped_sections.join('\n');
+        chunks.appendChild(dropped);
+      }
       const date = document.createElement('td');
       date.textContent = doc.uploaded_at.replace('T', ' ').replace('+00:00', ' UTC');
       const actions = document.createElement('td');
@@ -84,6 +117,7 @@
     }
     try {
       await refresh();
+      await loadTopics();
       sessionStorage.setItem(KEY, state.token);
       setStatus($('auth-status'), 'Доступ разрешён.', 'ok');
       showPanel(true);
@@ -112,6 +146,7 @@
     form.append('title', $('title').value.trim());
     form.append('note', $('note').value.trim());
     form.append('replace', $('replace').checked ? 'true' : 'false');
+    form.append('exclude_topics', selectedTopics());
 
     $('upload-btn').disabled = true;
     setStatus($('upload-status'), 'Индексирую документ, это может занять минуту…', null);
@@ -124,6 +159,7 @@
         'ok'
       );
       $('upload-form').reset();
+      await loadTopics();
       await refresh();
     } catch (err) {
       setStatus($('upload-status'), err.message, 'err');

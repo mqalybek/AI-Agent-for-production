@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-
-import logging
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -16,6 +16,12 @@ from chromadb.config import Settings as ChromaSettings
 from .config import settings
 from .embeddings import get_embedding_function
 from .ingest import Chunk
+from .retrieval import (
+    WEIGHT_LEXICAL,
+    WEIGHT_VECTOR,
+    BM25Index,
+    reciprocal_rank_fusion,
+)
 
 _lock = threading.Lock()
 
@@ -42,11 +48,13 @@ class DocumentStore:
             path=str(self.chroma_dir),
             settings=ChromaSettings(anonymized_telemetry=False, allow_reset=False),
         )
+        self._embed = get_embedding_function()
         self._collection = self._client.get_or_create_collection(
             name=settings.collection_name,
-            embedding_function=get_embedding_function(),
+            embedding_function=self._embed,
             metadata={"hnsw:space": "cosine"},
         )
+        self._bm25: Optional[BM25Index] = None
 
     # ------------------------------------------------------------------ реестр
     def _read_registry(self) -> Dict[str, dict]:
@@ -87,6 +95,8 @@ class DocumentStore:
         pages: Optional[int] = None,
         note: str = "",
         doc_id: Optional[str] = None,
+        excluded_topics: Optional[List[str]] = None,
+        dropped_sections: Optional[List[str]] = None,
     ) -> dict:
         if not chunks:
             raise ValueError("Из файла не удалось извлечь текст (возможно, это скан).")
@@ -96,13 +106,18 @@ class DocumentStore:
         for chunk in chunks:
             chunk_id = f"{doc_id}:{chunk.index}"
             ids.append(chunk_id)
-            documents.append(chunk.text)
+            # Заголовок главы попадает в индексируемый текст: он даёт контекст
+            # и векторной модели, и лексическому поиску.
+            header = " ".join(part for part in (chunk.chapter, chunk.locator) if part)
+            documents.append(f"{header}\n{chunk.text}" if header else chunk.text)
             metadatas.append(
                 {
                     "doc_id": doc_id,
                     "title": title,
                     "filename": filename,
                     "locator": chunk.locator or "",
+                    "chapter": chunk.chapter or "",
+                    "section": chunk.section or "",
                     "page": chunk.page if chunk.page is not None else -1,
                     "chunk_index": chunk.index,
                 }
@@ -127,9 +142,12 @@ class DocumentStore:
                 "size_bytes": size_bytes,
                 "pages": pages,
                 "note": note,
+                "excluded_topics": list(excluded_topics or []),
+                "dropped_sections": list(dropped_sections or []),
             }
             registry[doc_id] = record
             self._write_registry(registry)
+            self._bm25 = None
         return record
 
     def delete_document(self, doc_id: str) -> bool:
@@ -140,38 +158,112 @@ class DocumentStore:
                 return False
             self._collection.delete(where={"doc_id": doc_id})
             self._write_registry(registry)
+            self._bm25 = None
         stored = self.upload_dir / f"{doc_id}_{record['filename']}"
         if stored.exists():
             stored.unlink()
         return True
 
     # ----------------------------------------------------------------- поиск
+    def _hit(self, chunk_id: str, text: str, metadata: dict, score: float) -> dict:
+        page = metadata.get("page", -1)
+        return {
+            "chunk_id": chunk_id,
+            "text": text,
+            "document": metadata.get("title", "Без названия"),
+            "document_id": metadata.get("doc_id", ""),
+            "locator": metadata.get("locator", ""),
+            "chapter": metadata.get("chapter", ""),
+            "page": None if page in (None, -1) else int(page),
+            "score": round(score, 4),
+        }
+
+    def _ensure_bm25(self) -> BM25Index:
+        """Лексический индекс строится лениво и живёт в памяти процесса."""
+        if self._bm25 is None:
+            data = self._collection.get(include=["documents"])
+            pairs = list(zip(data.get("ids", []), data.get("documents", [])))
+            self._bm25 = BM25Index.build(pairs)
+        return self._bm25
+
+    def _fetch(self, chunk_ids: List[str]) -> dict:
+        if not chunk_ids:
+            return {}
+        data = self._collection.get(ids=chunk_ids, include=["documents", "metadatas"])
+        return {
+            chunk_id: (data["documents"][i], data["metadatas"][i] or {})
+            for i, chunk_id in enumerate(data.get("ids", []))
+        }
+
+    def _similarity(self, query: str, chunk_ids: List[str]) -> Dict[str, float]:
+        """Косинусное сходство для фрагментов, которых не было в векторной выдаче.
+
+        Их нашёл BM25, и без этого шага пользователь видел бы у самой полезной
+        цитаты сходство 0.00.
+        """
+        if not chunk_ids:
+            return {}
+        data = self._collection.get(ids=chunk_ids, include=["embeddings"])
+        vectors = data.get("embeddings")
+        if vectors is None or len(vectors) == 0:
+            return {}
+        query_vector = self._embed([query])[0]
+        query_norm = math.sqrt(sum(value * value for value in query_vector)) or 1.0
+        scores: Dict[str, float] = {}
+        for position, chunk_id in enumerate(data.get("ids", [])):
+            vector = vectors[position]
+            norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+            dot = sum(a * b for a, b in zip(query_vector, vector))
+            scores[chunk_id] = max(0.0, dot / (query_norm * norm))
+        return scores
+
     def search(self, query: str, top_k: int) -> List[dict]:
-        if self._collection.count() == 0:
+        """Гибридный поиск: вектора + BM25, слияние по Reciprocal Rank Fusion."""
+        total = self._collection.count()
+        if total == 0:
             return []
-        result = self._collection.query(
+
+        depth = min(total, max(top_k * 4, 20))
+        vector_result = self._collection.query(
             query_texts=[query],
-            n_results=min(top_k, self._collection.count()),
+            n_results=depth,
             include=["documents", "metadatas", "distances"],
         )
-        hits: List[dict] = []
-        ids = result.get("ids", [[]])[0]
-        for position, chunk_id in enumerate(ids):
-            metadata = result["metadatas"][0][position] or {}
-            distance = result["distances"][0][position]
-            page = metadata.get("page", -1)
-            hits.append(
-                {
-                    "chunk_id": chunk_id,
-                    "text": result["documents"][0][position],
-                    "document": metadata.get("title", "Без названия"),
-                    "document_id": metadata.get("doc_id", ""),
-                    "locator": metadata.get("locator", ""),
-                    "page": None if page in (None, -1) else int(page),
-                    # cosine distance -> сходство
-                    "score": round(max(0.0, 1.0 - float(distance)), 4),
-                }
+        vector_ids: List[str] = vector_result.get("ids", [[]])[0]
+        # Косинусное сходство пригодится для показа пользователю.
+        similarity = {
+            chunk_id: max(0.0, 1.0 - float(vector_result["distances"][0][i]))
+            for i, chunk_id in enumerate(vector_ids)
+        }
+        cached = {
+            chunk_id: (
+                vector_result["documents"][0][i],
+                vector_result["metadatas"][0][i] or {},
             )
+            for i, chunk_id in enumerate(vector_ids)
+        }
+
+        lexical = self._ensure_bm25().search(query, depth)
+        lexical_ids = [chunk_id for chunk_id, _ in lexical]
+
+        vector_weight = (
+            1.0 if settings.embeddings_provider == "voyage" else WEIGHT_VECTOR
+        )
+        fused = reciprocal_rank_fusion(
+            [(lexical_ids, WEIGHT_LEXICAL), (vector_ids, vector_weight)]
+        )
+        ranked = sorted(fused.items(), key=lambda item: item[1], reverse=True)[:top_k]
+
+        missing = [chunk_id for chunk_id, _ in ranked if chunk_id not in cached]
+        cached.update(self._fetch(missing))
+        similarity.update(self._similarity(query, missing))
+
+        hits: List[dict] = []
+        for chunk_id, _ in ranked:
+            if chunk_id not in cached:
+                continue
+            text, metadata = cached[chunk_id]
+            hits.append(self._hit(chunk_id, text, metadata, similarity.get(chunk_id, 0.0)))
         return hits
 
     def stats(self) -> dict:

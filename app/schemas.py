@@ -12,6 +12,7 @@ class Source(BaseModel):
     document: str = Field(..., description="Название документа")
     document_id: str
     locator: str = Field("", description="Статья / пункт / раздел")
+    chapter: str = Field("", description="Глава документа")
     page: Optional[int] = Field(None, description="Страница (для PDF)")
     chunk_id: str
     score: Optional[float] = Field(None, description="Косинусное сходство, 0..1")
@@ -41,6 +42,12 @@ class DocumentInfo(BaseModel):
     size_bytes: int
     pages: Optional[int] = None
     note: str = ""
+    excluded_topics: List[str] = Field(
+        default_factory=list, description="Темы, исключённые при индексации"
+    )
+    dropped_sections: List[str] = Field(
+        default_factory=list, description="Заголовки выброшенных разделов"
+    )
 
 
 class UploadResponse(BaseModel):

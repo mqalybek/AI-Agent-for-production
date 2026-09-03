@@ -28,6 +28,7 @@
       const item = el('div', 'source');
       const parts = [s.document];
       if (s.locator) parts.push(s.locator);
+      if (s.chapter) parts.push(s.chapter);
       if (s.page) parts.push(`с. ${s.page}`);
       const ref = el('div', 'ref', parts.join(' · '));
       if (typeof s.score === 'number') {
