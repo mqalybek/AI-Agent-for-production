@@ -61,7 +61,7 @@ python3 scripts/index_documents.py --reset
 ## Быстрый старт
 
 ```bash
-cd subsoil-law-rag
+git clone <адрес этого репозитория> && cd subsoil-law-rag
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -159,6 +159,8 @@ curl -s http://127.0.0.1:8000/api/ask \
 pip install pytest
 python3 -m pytest tests -q
 ```
+
+Те же тесты гоняет CI (`.github/workflows/tests.yml`) на каждый push.
 
 Покрыты: распознавание статей и пунктов, границы фрагментов, отсев сносок,
 тематическая фильтрация (включая раздел со смешанным заголовком), токенизация и

@@ -1,0 +1,22 @@
+name: Тесты
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      # Хранилище и вызовы модели в тестах подменяются заглушками: ни ChromaDB,
+      # ни Anthropic API не дёргаются, модель эмбеддингов не скачивается.
+      - run: python -m pytest tests -q
