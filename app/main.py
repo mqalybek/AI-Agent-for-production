@@ -78,6 +78,7 @@ def ask(payload: AskRequest) -> AskResponse:
     try:
         answer, hits, grounded = answer_question(question, payload.top_k)
     except RuntimeError as exc:
+        # Сюда попадают и отсутствующий ключ, и понятные отказы Anthropic.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 — не показываем стек наружу
         logger.exception("Ошибка генерации ответа")

@@ -1,0 +1,3 @@
+# Windows-скрипт должен приезжать с CRLF, иначе cmd.exe спотыкается о строки.
+*.bat text eol=crlf
+*.sh  text eol=lf

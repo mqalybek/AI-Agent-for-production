@@ -3,7 +3,13 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from anthropic import Anthropic
+from anthropic import (
+    Anthropic,
+    APIConnectionError,
+    AuthenticationError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 
 from .config import DISCLAIMER, settings
 from .store import get_store
@@ -62,6 +68,10 @@ def build_context(hits: List[dict]) -> str:
     return "<документы>\n" + "\n\n".join(parts) + "\n</документы>"
 
 
+class ModelUnavailable(RuntimeError):
+    """Обращение к модели не удалось по причине, понятной пользователю."""
+
+
 def _client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError(
@@ -83,12 +93,35 @@ def answer_question(question: str, top_k: int | None = None) -> Tuple[str, List[
         "Ответь строго по правилам из системной инструкции."
     )
 
-    response = _client().messages.create(
-        model=settings.anthropic_model,
-        max_tokens=2000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    try:
+        response = _client().messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2000,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+    # Типовые отказы Anthropic переводим в понятную пользователю причину:
+    # исходный текст ошибки говорит на языке HTTP, а не на языке того, кто
+    # просто открыл сайт и задал вопрос.
+    except AuthenticationError as exc:
+        raise ModelUnavailable(
+            "Anthropic отклонил ключ API. Проверьте ANTHROPIC_API_KEY в файле .env — "
+            "ключ выдаётся на console.anthropic.com."
+        ) from exc
+    except PermissionDeniedError as exc:
+        raise ModelUnavailable(
+            "У ключа нет доступа к модели "
+            f"{settings.anthropic_model}. Укажите в .env доступную модель "
+            "или пополните баланс на console.anthropic.com."
+        ) from exc
+    except RateLimitError as exc:
+        raise ModelUnavailable(
+            "Anthropic ограничил частоту запросов. Подождите минуту и повторите вопрос."
+        ) from exc
+    except APIConnectionError as exc:
+        raise ModelUnavailable(
+            "Не удалось связаться с Anthropic. Проверьте интернет-соединение."
+        ) from exc
     answer = "".join(
         block.text for block in response.content if getattr(block, "type", "") == "text"
     ).strip()
