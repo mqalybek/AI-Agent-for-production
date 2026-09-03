@@ -1,0 +1,147 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --ink: #14181f;
+  --muted: #62707f;
+  --line: #e2e6ec;
+  --accent: #1c5d99;
+  --accent-soft: #eaf1f8;
+  --warn: #8a5a00;
+  --warn-bg: #fff6e0;
+  --radius: 12px;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141a;
+    --panel: #181c24;
+    --ink: #e8ecf2;
+    --muted: #98a4b3;
+    --line: #29303b;
+    --accent: #6aa9e0;
+    --accent-soft: #1b2632;
+    --warn: #e8bd6b;
+    --warn-bg: #2b2312;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+header.top {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+header.top h1 { font-size: 17px; margin: 0; }
+header.top .sub { color: var(--muted); font-size: 13px; }
+header.top nav { margin-left: auto; display: flex; gap: 12px; }
+
+a { color: var(--accent); }
+
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.disclaimer {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 { margin: 0 0 12px; font-size: 15px; }
+
+#chat { display: flex; flex-direction: column; gap: 14px; margin-bottom: 18px; }
+
+.msg { border-radius: var(--radius); padding: 12px 14px; white-space: pre-wrap; }
+.msg.user { background: var(--accent-soft); align-self: flex-end; max-width: 85%; }
+.msg.bot { background: var(--panel); border: 1px solid var(--line); }
+.msg.error { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn); }
+
+.sources { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.sources h4 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
+.source {
+  font-size: 13px;
+  border-left: 3px solid var(--accent);
+  padding: 6px 0 6px 10px;
+  margin-bottom: 8px;
+}
+.source .ref { font-weight: 600; }
+.source .score { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-left: 6px; }
+.source .excerpt { color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
+
+form.ask { display: flex; gap: 10px; align-items: flex-end; }
+textarea, input[type="text"], input[type="password"], input[type="file"] {
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+textarea { resize: vertical; min-height: 64px; }
+
+button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 18px;
+  cursor: pointer;
+}
+button:disabled { opacity: .55; cursor: progress; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+button.danger { background: #b3261e; }
+
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > * { flex: 1 1 220px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+
+.pill {
+  display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.muted { color: var(--muted); font-size: 13px; }
+.hidden { display: none !important; }
+.status { font-size: 13px; margin-top: 10px; }
+.status.err { color: #b3261e; }
+.status.ok { color: #1f7a3d; }
+
+.dots::after {
+  content: "…";
+  animation: dots 1.2s steps(4, end) infinite;
+}
+@keyframes dots { 0% { content: ""; } 33% { content: "."; } 66% { content: ".."; } 100% { content: "…"; } }

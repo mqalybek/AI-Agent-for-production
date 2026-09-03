@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Админ-панель · База нормативных документов</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Админ-панель</h1>
+    <div class="sub">Загрузка и обновление нормативных документов (PDF, DOCX, TXT, MD)</div>
+  </div>
+  <nav><a href="/">К чату</a></nav>
+</header>
+
+<main>
+  <div class="card" id="auth-card">
+    <h2>Вход</h2>
+    <label for="token">Токен администратора (ADMIN_TOKEN)</label>
+    <input type="password" id="token" placeholder="Введите токен" autocomplete="current-password">
+    <div class="row" style="margin-top:12px">
+      <button id="login">Войти</button>
+      <button class="ghost" id="logout" type="button">Выйти</button>
+    </div>
+    <div class="status" id="auth-status"></div>
+  </div>
+
+  <section id="panel" class="hidden">
+    <div class="card">
+      <h2>Статистика базы</h2>
+      <div id="stats" class="muted">—</div>
+    </div>
+
+    <div class="card">
+      <h2>Загрузить документ</h2>
+      <form id="upload-form">
+        <label for="file">Файл (PDF / DOCX / TXT / MD)</label>
+        <input type="file" id="file" accept=".pdf,.docx,.txt,.md" required>
+        <div class="row">
+          <div>
+            <label for="title">Название документа (попадёт в ссылку на источник)</label>
+            <input type="text" id="title" placeholder="Например: Кодекс о недрах и недропользовании">
+          </div>
+          <div>
+            <label for="note">Примечание (редакция, дата)</label>
+            <input type="text" id="note" placeholder="Например: ред. от 01.01.2025">
+          </div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
+          <input type="checkbox" id="replace" style="width:auto">
+          Обновить существующий документ с таким же названием (переиндексация)
+        </label>
+        <div style="margin-top:12px"><button type="submit" id="upload-btn">Загрузить и проиндексировать</button></div>
+        <div class="status" id="upload-status"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Документы в базе</h2>
+      <table>
+        <thead>
+          <tr><th>Название</th><th>Файл</th><th>Фрагментов</th><th>Загружен</th><th></th></tr>
+        </thead>
+        <tbody id="docs-body"></tbody>
+      </table>
+      <div class="status" id="docs-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Проверка поиска (без вызова модели)</h2>
+      <input type="text" id="probe" placeholder="Тестовый запрос к векторному индексу">
+      <div style="margin-top:10px"><button class="ghost" id="probe-btn" type="button">Найти фрагменты</button></div>
+      <div id="probe-result"></div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>

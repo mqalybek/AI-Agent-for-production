@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ассистент по законодательству о недропользовании</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Ассистент по законодательству о недропользовании</h1>
+    <div class="sub">Ответы формируются только по загруженным нормативным документам</div>
+  </div>
+  <nav><a href="/admin">Админ-панель</a></nav>
+</header>
+
+<main>
+  <div class="disclaimer" id="disclaimer">
+    Сервис носит справочный характер и не заменяет консультацию квалифицированного юриста.
+  </div>
+
+  <div class="card">
+    <h2>База знаний</h2>
+    <div id="docs" class="muted">Загрузка списка документов…</div>
+  </div>
+
+  <div id="chat"></div>
+
+  <form class="ask" id="ask-form">
+    <textarea id="question" placeholder="Например: какие основания для досрочного прекращения права недропользования?" required></textarea>
+    <button type="submit" id="send">Спросить</button>
+  </form>
+  <p class="muted">Enter — перенос строки, Ctrl+Enter — отправить.</p>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
