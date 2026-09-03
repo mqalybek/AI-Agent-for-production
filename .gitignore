@@ -2,3 +2,8 @@ data/
 .env
 venv/
 .venv/
+
+# Python-кеш и артефакты прогонов
+__pycache__/
+*.py[cod]
+.pytest_cache/
