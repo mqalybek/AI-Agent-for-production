@@ -35,3 +35,15 @@ def test_build_context_carries_source_attributes():
     assert 'locator="Статья 12"' in context
     assert 'page="3"' in context
     assert "<документы>" in context
+
+
+def test_prompt_fixes_answer_language_and_quote_language():
+    """Ответ — на языке вопроса, цитата нормы — на языке документа."""
+    assert "на языке вопроса пользователя" in SYSTEM_PROMPT
+    assert "ЦИТАТЫ норм всегда приводи на языке оригинала" in SYSTEM_PROMPT
+
+
+def test_prompt_restricts_domain_to_hydrocarbons():
+    """Уран и ТПИ — вне предметной области ассистента."""
+    assert "только углеводороды" in SYSTEM_PROMPT
+    assert "вне предметной области" in SYSTEM_PROMPT
