@@ -94,7 +94,7 @@ def ask(payload: AskRequest) -> AskResponse:
     conversations.add_message(conversation_id, "user", question)
 
     try:
-        answer, hits, grounded = answer_question(question, payload.top_k, history)
+        answer, hits, grounded, usage = answer_question(question, payload.top_k, history)
     except RuntimeError as exc:
         # Сюда попадают и отсутствующий ключ, и понятные отказы Anthropic.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -118,7 +118,11 @@ def ask(payload: AskRequest) -> AskResponse:
         for hit in hits
     ]
     message_id = conversations.add_message(
-        conversation_id, "assistant", answer, [source.model_dump() for source in sources]
+        conversation_id,
+        "assistant",
+        answer,
+        [source.model_dump() for source in sources],
+        usage=usage,
     )
     return AskResponse(
         answer=answer,
@@ -168,7 +172,12 @@ def leave_feedback(payload: FeedbackRequest) -> FeedbackRecord:
 # --------------------------------------------------------------------- админка
 @app.get("/api/admin/stats", response_model=StatsResponse, dependencies=[Depends(require_admin)])
 def admin_stats() -> StatsResponse:
-    return StatsResponse(**get_store().stats(), **get_conversations().feedback_stats())
+    conversations = get_conversations()
+    return StatsResponse(
+        **get_store().stats(),
+        **conversations.feedback_stats(),
+        **conversations.usage_stats(),
+    )
 
 
 @app.get(

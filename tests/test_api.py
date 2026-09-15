@@ -96,7 +96,8 @@ def chat_client(monkeypatch, tmp_path):
     def fake_answer(question, top_k=None, history=None):
         captured["question"] = question
         captured["history"] = history or []
-        return f"Ответ на: {question}", store.hits, True
+        usage = {"model": "claude-opus-5", "input_tokens": 5500, "output_tokens": 1100}
+        return f"Ответ на: {question}", store.hits, True, usage
 
     monkeypatch.setattr(main, "answer_question", fake_answer)
     client = TestClient(main.app)

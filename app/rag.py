@@ -224,8 +224,8 @@ def answer_question(
     question: str,
     top_k: Optional[int] = None,
     history: Optional[List[dict]] = None,
-) -> Tuple[str, List[dict], bool]:
-    """Вернуть (ответ, источники, признак наличия контекста).
+) -> Tuple[str, List[dict], bool, dict]:
+    """Вернуть (ответ, источники, признак наличия контекста, расход токенов).
 
     ``history`` — предыдущие реплики диалога в хронологическом порядке
     (``{"role": "user"|"assistant", "content": ...}``). Они и уточняют поиск,
@@ -235,7 +235,8 @@ def answer_question(
     search_query = contextualize(question, history)
     hits = get_store().search(search_query, top_k or settings.top_k)
     if not hits:
-        return NO_CONTEXT_ANSWER, [], False
+        # Модель не вызывалась — и платить не за что.
+        return NO_CONTEXT_ANSWER, [], False, {}
 
     user_message = (
         f"{build_context(hits)}\n\n"
@@ -288,4 +289,10 @@ def answer_question(
 
     if DISCLAIMER not in answer:
         answer = f"{answer}\n\n{DISCLAIMER}"
-    return answer, hits, True
+
+    usage = {
+        "model": settings.anthropic_model,
+        "input_tokens": getattr(response.usage, "input_tokens", 0),
+        "output_tokens": getattr(response.usage, "output_tokens", 0),
+    }
+    return answer, hits, True, usage

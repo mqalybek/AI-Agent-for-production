@@ -91,6 +91,14 @@ class UploadResponse(BaseModel):
     replaced: bool = False
 
 
+class ModelUsage(BaseModel):
+    model: str
+    answers: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: Optional[float] = None
+
+
 class StatsResponse(BaseModel):
     documents: int
     chunks: int
@@ -99,3 +107,10 @@ class StatsResponse(BaseModel):
     conversations: int = 0
     liked: int = 0
     disliked: int = 0
+    answers: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: Optional[float] = Field(
+        None, description="Оценка расходов по прайсу Anthropic, в долларах"
+    )
+    by_model: List[ModelUsage] = Field(default_factory=list)

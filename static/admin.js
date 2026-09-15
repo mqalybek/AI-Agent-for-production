@@ -108,12 +108,48 @@
     }
   }
 
+  const money = (usd) => {
+    if (usd === null || usd === undefined) return '—';
+    return usd >= 1 ? `$${usd.toFixed(2)}` : `${(usd * 100).toFixed(1)} цента`;
+  };
+
+  const thousands = (n) => n.toLocaleString('ru-RU');
+
   async function refresh() {
     const stats = await api('/api/admin/stats');
     $('stats').textContent =
       `Документов: ${stats.documents} · фрагментов: ${stats.chunks} · ` +
       `эмбеддинги: ${stats.embeddings_provider} · модель: ${stats.model} · ` +
       `диалогов: ${stats.conversations} · оценок: 👍 ${stats.liked} / 👎 ${stats.disliked}`;
+
+    /* Фактический расход: считается по ответам модели, а не по оценкам «на глаз». */
+    const usage = $('usage');
+    usage.textContent = '';
+    if (!stats.answers) {
+      usage.textContent = 'Модель пока не отвечала — расхода нет.';
+    } else {
+      const head = document.createElement('div');
+      head.textContent =
+        `Ответов: ${stats.answers} · токенов: ${thousands(stats.input_tokens)} вход / ` +
+        `${thousands(stats.output_tokens)} выход · потрачено ≈ ${money(stats.cost_usd)}`;
+      usage.appendChild(head);
+
+      const perAnswer = stats.cost_usd === null ? null : stats.cost_usd / stats.answers;
+      const avg = document.createElement('div');
+      avg.className = 'muted';
+      avg.textContent = `В среднем ${money(perAnswer)} за ответ`;
+      usage.appendChild(avg);
+
+      stats.by_model.forEach((row) => {
+        const line = document.createElement('div');
+        line.className = 'muted';
+        line.textContent =
+          `${row.model}: ${row.answers} отв. · ${thousands(row.input_tokens)} / ` +
+          `${thousands(row.output_tokens)} токенов · ${money(row.cost_usd)}`;
+        usage.appendChild(line);
+      });
+    }
+
     await loadFeedback();
 
     const docs = await api('/api/admin/documents');

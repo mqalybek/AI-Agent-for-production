@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS messages (
     role             TEXT NOT NULL,
     content          TEXT NOT NULL,
     sources          TEXT NOT NULL DEFAULT '[]',
-    created_at       TEXT NOT NULL
+    created_at       TEXT NOT NULL,
+    model            TEXT NOT NULL DEFAULT '',
+    input_tokens     INTEGER NOT NULL DEFAULT 0,
+    output_tokens    INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
     ON messages(conversation_id, position);
@@ -72,6 +75,19 @@ class ConversationStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Дописать колонки учёта токенов в базу, созданную прошлой версией."""
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(messages)")}
+        for column, definition in (
+            ("model", "TEXT NOT NULL DEFAULT ''"),
+            ("input_tokens", "INTEGER NOT NULL DEFAULT 0"),
+            ("output_tokens", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -106,6 +122,7 @@ class ConversationStore:
         role: str,
         content: str,
         sources: Optional[List[dict]] = None,
+        usage: Optional[dict] = None,
     ) -> str:
         """Записать реплику и вернуть её идентификатор (по нему ставится оценка)."""
         message_id = uuid.uuid4().hex
@@ -114,10 +131,12 @@ class ConversationStore:
                 "SELECT COALESCE(MAX(position), 0) + 1 FROM messages WHERE conversation_id = ?",
                 (conversation_id,),
             ).fetchone()[0]
+            usage = usage or {}
             conn.execute(
                 "INSERT INTO messages "
-                "(id, conversation_id, position, role, content, sources, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "(id, conversation_id, position, role, content, sources, created_at, "
+                "model, input_tokens, output_tokens) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     message_id,
                     conversation_id,
@@ -126,6 +145,9 @@ class ConversationStore:
                     content,
                     json.dumps(sources or [], ensure_ascii=False),
                     _now(),
+                    usage.get("model", ""),
+                    int(usage.get("input_tokens", 0)),
+                    int(usage.get("output_tokens", 0)),
                 ),
             )
             conn.execute(
@@ -223,6 +245,53 @@ class ConversationStore:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [dict(row) for row in rows]
+
+    def usage_stats(self) -> Dict[str, object]:
+        """Сколько токенов израсходовано и во что это обошлось.
+
+        Считаем по моделям: в одной базе могут оказаться ответы, полученные до
+        и после смены ANTHROPIC_MODEL, а цены у моделей разные.
+        """
+        from .pricing import estimate_cost
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT model, SUM(input_tokens) AS input_tokens, "
+                "SUM(output_tokens) AS output_tokens, COUNT(*) AS answers "
+                "FROM messages WHERE role = 'assistant' AND input_tokens > 0 "
+                "GROUP BY model"
+            ).fetchall()
+
+        by_model = []
+        total_input = total_output = total_answers = 0
+        total_cost = 0.0
+        cost_known = True
+        for row in rows:
+            cost = estimate_cost(row["model"], row["input_tokens"], row["output_tokens"])
+            by_model.append(
+                {
+                    "model": row["model"] or "неизвестно",
+                    "answers": row["answers"],
+                    "input_tokens": row["input_tokens"],
+                    "output_tokens": row["output_tokens"],
+                    "cost_usd": cost,
+                }
+            )
+            total_input += row["input_tokens"]
+            total_output += row["output_tokens"]
+            total_answers += row["answers"]
+            if cost is None:
+                cost_known = False
+            else:
+                total_cost += cost
+
+        return {
+            "answers": total_answers,
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "cost_usd": total_cost if cost_known else None,
+            "by_model": by_model,
+        }
 
     def feedback_stats(self) -> Dict[str, int]:
         with self._connect() as conn:
