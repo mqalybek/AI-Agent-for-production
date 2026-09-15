@@ -168,3 +168,24 @@ def test_feedback_roundtrip(chat_client):
     assert chat_client.post(
         "/api/feedback", json={"message_id": "нет", "rating": "up"}
     ).status_code == 404
+
+
+def test_without_model_user_still_gets_found_norms(chat_client, monkeypatch):
+    """Нет ключа — не ошибка, а найденные нормы: поиск работает без модели."""
+    def no_model(question, top_k=None, history=None):
+        raise RuntimeError("ANTHROPIC_API_KEY не задан")
+
+    monkeypatch.setattr(main, "answer_question", no_model)
+
+    response = chat_client.post(
+        "/api/ask", json={"question": "Сроки периода разведки углеводородов?"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["search_only"] is True
+    assert body["sources"], "нормы найдены, значит должны вернуться пользователю"
+    assert "Статья 116" in body["sources"][0]["locator"]
+    assert "поиск по документам работает" in body["answer"].lower()
+    # История диалога при этом не теряется — ответ записан как обычная реплика.
+    history = chat_client.get(f"/api/conversations/{body['conversation_id']}").json()
+    assert len(history["messages"]) == 2

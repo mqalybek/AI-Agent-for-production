@@ -16,7 +16,7 @@ from .config import DISCLAIMER, settings
 from .conversations import get_conversations
 from .ingest import SUPPORTED_SUFFIXES, UnsupportedFormat, load_and_chunk
 from .sections import TOPIC_FILTERS, TOPIC_LABELS, resolve_topics
-from .rag import answer_question, check_connection
+from .rag import answer_question, check_connection, search_only
 from .schemas import (
     AskRequest,
     AskResponse,
@@ -93,11 +93,15 @@ def ask(payload: AskRequest) -> AskResponse:
     history = conversations.history(conversation_id)
     conversations.add_message(conversation_id, "user", question)
 
+    degraded = False
     try:
         answer, hits, grounded, usage = answer_question(question, payload.top_k, history)
     except RuntimeError as exc:
-        # Сюда попадают и отсутствующий ключ, и понятные отказы Anthropic.
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        # Ключа нет, он отклонён или кончился баланс. Поиск по документам при
+        # этом работает и ничего не стоит — отдаём найденные нормы, а не ошибку.
+        logger.warning("Модель недоступна, отвечаю только поиском: %s", exc)
+        answer, hits = search_only(question, payload.top_k, history)
+        grounded, usage, degraded = bool(hits), {}, True
     except Exception as exc:  # noqa: BLE001 — не показываем стек наружу
         logger.exception("Ошибка генерации ответа")
         raise HTTPException(
@@ -129,6 +133,7 @@ def ask(payload: AskRequest) -> AskResponse:
         sources=sources,
         disclaimer=DISCLAIMER,
         grounded=grounded,
+        search_only=degraded,
         conversation_id=conversation_id,
         message_id=message_id,
     )

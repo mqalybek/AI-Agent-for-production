@@ -34,6 +34,10 @@ class AskResponse(BaseModel):
     grounded: bool = Field(
         True, description="False, если в документах не нашлось релевантных фрагментов"
     )
+    search_only: bool = Field(
+        False,
+        description="True, если модель недоступна и вернулись только найденные нормы",
+    )
     conversation_id: str = Field(..., description="Передайте его в следующем вопросе")
     message_id: str = Field(..., description="Идентификатор ответа — по нему ставится оценка")
 

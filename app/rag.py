@@ -157,6 +157,42 @@ def _client() -> Anthropic:
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
+SEARCH_ONLY_HEADER = (
+    "Связный ответ не сформирован: языковая модель не подключена. "
+    "Но поиск по документам работает — вот нормы, которые относятся к вашему "
+    "вопросу (полные цитаты в блоке «Источники» ниже):"
+)
+
+SEARCH_ONLY_FOOTER = (
+    "Чтобы получать готовые ответы со ссылками, укажите ANTHROPIC_API_KEY "
+    "в файле .env и перезапустите сервер."
+)
+
+
+def search_only(question: str, top_k: Optional[int] = None,
+                history: Optional[List[dict]] = None) -> Tuple[str, List[dict]]:
+    """Ответ без обращения к модели: перечень найденных норм.
+
+    Поиск по документам идёт локально и ничего не стоит, поэтому при
+    неподключённой модели (или исчерпанном балансе) незачем показывать голую
+    ошибку — пользователю отдаются сами нормы, пусть и без формулировки.
+    """
+    search_query = contextualize(question, history or [])
+    hits = get_store().search(search_query, top_k or settings.top_k)
+    if not hits:
+        return NO_CONTEXT_ANSWER, []
+
+    lines = [SEARCH_ONLY_HEADER, ""]
+    for hit in hits:
+        reference = " · ".join(
+            part for part in (hit["document"], hit.get("locator"), hit.get("chapter"))
+            if part
+        )
+        lines.append(f"• {reference}")
+    lines += ["", SEARCH_ONLY_FOOTER, "", DISCLAIMER]
+    return "\n".join(lines), hits
+
+
 def check_connection() -> dict:
     """Проверить, работает ли ключ Anthropic.
 
