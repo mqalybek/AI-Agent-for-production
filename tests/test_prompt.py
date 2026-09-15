@@ -120,8 +120,13 @@ def test_check_connection_explains_empty_balance(monkeypatch):
     class FakeClient:
         messages = FakeMessages()
 
+    # Ключ должен выглядеть настоящим, иначе проверка формата отсечёт его
+    # раньше, чем дело дойдёт до Anthropic.
+    real_looking_key = "sk-ant-api03-" + "x" * 90
     monkeypatch.setattr(
-        rag, "settings", dataclasses.replace(rag.settings, anthropic_api_key="sk-ant-test")
+        rag,
+        "settings",
+        dataclasses.replace(rag.settings, anthropic_api_key=real_looking_key),
     )
     monkeypatch.setattr(rag, "_client", lambda: FakeClient())
     result = rag.check_connection()

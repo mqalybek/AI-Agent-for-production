@@ -18,17 +18,33 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _clean_value(value: str) -> str:
+    """Снять кавычки и пробелы вокруг значения.
+
+    Ключ, записанный как ANTHROPIC_API_KEY="sk-ant-...", уходил в Anthropic
+    вместе с кавычками и отклонялся как неверный.
+    """
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1].strip()
+    return value
+
+
 def _load_dotenv() -> None:
     """Минимальный загрузчик .env, чтобы не тянуть лишнюю зависимость."""
     path = Path(__file__).resolve().parent.parent / ".env"
     if not path.exists():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # utf-8-sig убирает BOM: блокнот Windows дописывает его в начало файла,
+    # и первая переменная превращалась в «\ufeffANTHROPIC_API_KEY».
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
+        if line.lower().startswith("export "):
+            line = line[len("export "):]
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip())
+        os.environ.setdefault(key.strip(), _clean_value(value))
 
 
 _load_dotenv()

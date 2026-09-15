@@ -193,6 +193,54 @@ def search_only(question: str, top_k: Optional[int] = None,
     return "\n".join(lines), hits
 
 
+# Ключ Anthropic выглядит так: sk-ant-<тип>-<длинная строка>.
+KEY_PREFIX = "sk-ant-"
+# Значение из шаблона .env.example — признак того, что ключ так и не вписали.
+PLACEHOLDER_KEYS = {"sk-ant-...", "sk-ant-", "sk-ant-api03-..."}
+
+
+def describe_key(key: str) -> str:
+    """Безопасное описание ключа: видно, что лежит в .env, но не сам ключ."""
+    if not key:
+        return "пусто"
+    head = key[:10]
+    tail = key[-4:] if len(key) > 14 else ""
+    return f"«{head}…{tail}», длина {len(key)}"
+
+
+def inspect_key(key: str) -> Optional[str]:
+    """Найти проблему в самом ключе, не обращаясь к Anthropic.
+
+    Ошибку формата дешевле и понятнее поймать здесь, чем получить от API
+    безликое «отклонил ключ».
+    """
+    if not key:
+        return None
+    if key in PLACEHOLDER_KEYS or key.endswith("..."):
+        return (
+            "В .env остался пример из шаблона, а не настоящий ключ "
+            f"({describe_key(key)}). Создайте ключ на console.anthropic.com → "
+            "Settings → API keys и вставьте его целиком."
+        )
+    if not key.startswith(KEY_PREFIX):
+        return (
+            f"Ключ в .env не похож на ключ Anthropic: {describe_key(key)}. "
+            f"Настоящий начинается с {KEY_PREFIX!r}. Проверьте, что скопирована "
+            "именно строка ключа, без лишних символов."
+        )
+    if any(ch.isspace() for ch in key):
+        return (
+            "Внутри ключа есть пробел или перенос строки — скорее всего он "
+            "скопирован по частям. Вставьте ключ одной строкой."
+        )
+    if len(key) < 40:
+        return (
+            f"Ключ слишком короткий ({describe_key(key)}) — похоже, скопирован "
+            "не полностью. Скопируйте его целиком из консоли Anthropic."
+        )
+    return None
+
+
 def check_connection() -> dict:
     """Проверить, работает ли ключ Anthropic.
 
@@ -200,7 +248,8 @@ def check_connection() -> dict:
     в понятный статус: администратору важно знать, почему ассистент молчит —
     ключ не вписан, ключ неверный или на счету нет средств.
     """
-    if not settings.anthropic_api_key:
+    key = settings.anthropic_api_key
+    if not key:
         return {
             "status": "no_key",
             "message": "ANTHROPIC_API_KEY не указан в файле .env. "
@@ -208,6 +257,11 @@ def check_connection() -> dict:
             "После правки .env перезапустите сервер: файл читается при старте.",
             "model": settings.anthropic_model,
         }
+
+    problem = inspect_key(key)
+    if problem:
+        return {"status": "bad_key_format", "message": problem, "model": settings.anthropic_model}
+
     try:
         _client().messages.create(
             model=CONTEXTUALIZE_MODEL,
@@ -217,9 +271,10 @@ def check_connection() -> dict:
     except AuthenticationError:
         return {
             "status": "invalid_key",
-            "message": "Anthropic отклонил ключ. Проверьте ANTHROPIC_API_KEY в .env — "
-            "возможно, ключ отозван, скопирован не полностью или сервер ещё не "
-            "перезапущен после правки файла (.env читается при старте).",
+            "message": "Anthropic отклонил ключ. Сервер прочитал из .env ключ "
+            f"{describe_key(key)}. Если это не тот ключ, который вы вписали, — "
+            "сервер не перезапущен после правки файла. Если тот — ключ отозван "
+            "или скопирован не полностью, создайте новый на console.anthropic.com.",
             "model": settings.anthropic_model,
         }
     except PermissionDeniedError as exc:
