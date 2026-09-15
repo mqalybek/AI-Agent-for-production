@@ -71,8 +71,9 @@ Anthropic. Поэтому GitHub Pages не подойдёт — приложе�
 
 * **Python 3.10 или новее** — <https://www.python.org/downloads/>.
   На Windows при установке отметьте «Add python.exe to PATH».
-* **Ключ Anthropic** — <https://console.anthropic.com/settings/keys>. Ключ
-  платный: вопрос стоит примерно 3–5 центов на `claude-opus-5` (по умолчанию),
+* **Ключ Anthropic** — <https://console.anthropic.com/settings/keys>. Сам ключ
+  бесплатный, платят за usage credits (Plans & Billing → Buy credits): вопрос
+  стоит примерно 5,5 цента на `claude-opus-5` (по умолчанию),
   потому что вместе с вопросом в модель уходят найденные фрагменты документов.
   Если объёмы большие, поставьте в `.env` `ANTHROPIC_MODEL=claude-sonnet-5` —
   выйдет примерно вдвое дешевле.
