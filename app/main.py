@@ -227,6 +227,15 @@ async def upload_document(
     Разделы и главы с такими заголовками не попадают в индекс: так ассистент по
     углеводородам не отвечает нормами про уран или твёрдые полезные ископаемые.
     """
+    if settings.lite_index:
+        # В serverless-режиме индекс приезжает вместе с кодом, а диск доступен
+        # только на чтение: собрать новый индекс здесь негде.
+        raise HTTPException(
+            status_code=503,
+            detail="Загрузка документов недоступна в облегчённом режиме. "
+            "Добавьте документ в локальной версии, пересоберите индекс "
+            "(python scripts/export_lite_index.py) и разверните заново.",
+        )
     try:
         topics = resolve_topics(exclude_topics.split(","))
     except ValueError as exc:
@@ -292,6 +301,12 @@ async def upload_document(
 
 @app.delete("/api/admin/documents/{doc_id}", dependencies=[Depends(require_admin)])
 def delete_document(doc_id: str) -> dict:
+    if settings.lite_index:
+        raise HTTPException(
+            status_code=503,
+            detail="Удаление документов недоступно в облегчённом режиме: "
+            "индекс собирается локально и разворачивается вместе с кодом.",
+        )
     if not get_store().delete_document(doc_id):
         raise HTTPException(status_code=404, detail="Документ не найден.")
     return {"deleted": doc_id}

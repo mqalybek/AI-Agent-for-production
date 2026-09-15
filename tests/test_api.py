@@ -189,3 +189,22 @@ def test_without_model_user_still_gets_found_norms(chat_client, monkeypatch):
     # История диалога при этом не теряется — ответ записан как обычная реплика.
     history = chat_client.get(f"/api/conversations/{body['conversation_id']}").json()
     assert len(history["messages"]) == 2
+
+
+def test_lite_mode_refuses_document_upload(chat_client, monkeypatch):
+    """В serverless-режиме индекс неизменяемый — загрузка должна отказать понятно."""
+    import dataclasses
+    import io
+
+    from app import config
+
+    monkeypatch.setattr(
+        main, "settings", dataclasses.replace(config.settings, lite_index=True)
+    )
+    response = chat_client.post(
+        "/api/admin/documents",
+        headers={"Authorization": "Bearer test-token"},
+        files={"file": ("norma.txt", io.BytesIO("Статья 1. Текст".encode()), "text/plain")},
+    )
+    assert response.status_code == 503
+    assert "облегчённом режиме" in response.json()["detail"]
