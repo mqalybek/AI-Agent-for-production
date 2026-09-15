@@ -20,5 +20,8 @@ COPY documents ./documents
 VOLUME ["/data"]
 EXPOSE 8000
 
+# Порт задаёт хостинг (Render, Railway, Fly передают его в PORT); локально 8000.
+ENV PORT=8000
+
 # Документы индексируются при первом старте, дальше индекс берётся из тома.
-CMD ["sh", "-c", "[ -d \"$CHROMA_DIR\" ] || python scripts/index_documents.py; exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "[ -d \"$CHROMA_DIR\" ] || python scripts/index_documents.py; exec python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

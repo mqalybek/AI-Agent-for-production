@@ -1,0 +1,24 @@
+# Развёртывание на Render: постоянный адрес в интернете вместо localhost.
+# Подключите репозиторий на dashboard.render.com → New → Blueprint.
+services:
+  - type: web
+    name: subsoil-law-rag
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # свободный тариф засыпает и теряет диск — здесь нужен платный
+    healthCheckPath: /api/health
+    disk:
+      name: subsoil-data
+      mountPath: /data     # индекс и загруженные документы переживают перезапуск
+      sizeGB: 2
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false        # значение вводится в панели Render, в репозиторий не попадает
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-5
+      - key: CHROMA_DIR
+        value: /data/chroma
+      - key: UPLOAD_DIR
+        value: /data/uploads
