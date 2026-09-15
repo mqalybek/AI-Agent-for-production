@@ -53,11 +53,52 @@
       .join(',');
   }
 
+  async function loadFeedback(rating) {
+    const body = $('feedback-body');
+    body.textContent = '';
+    const query = rating ? `?rating=${rating}` : '';
+    const items = await api(`/api/admin/feedback${query}`);
+    if (!items.length) {
+      setStatus($('feedback-status'), 'Оценок пока нет.', null);
+      return;
+    }
+    setStatus($('feedback-status'), '', null);
+    items.forEach((item) => {
+      const tr = document.createElement('tr');
+      tr.className = 'feedback-row';
+
+      const mark = document.createElement('td');
+      mark.className = item.rating === 'up' ? 'rating-up' : 'rating-down';
+      mark.textContent = item.rating === 'up' ? '👍 полезно' : '👎 неверно';
+
+      const text = document.createElement('td');
+      text.appendChild(document.createTextNode(item.question || '(вопрос не сохранён)'));
+      if (item.comment) {
+        const comment = document.createElement('div');
+        comment.className = 'quote';
+        comment.textContent = `Замечание: ${item.comment}`;
+        text.appendChild(comment);
+      }
+      const answer = document.createElement('div');
+      answer.className = 'quote';
+      answer.textContent = `Ответ: ${item.answer.slice(0, 200)}${item.answer.length > 200 ? '…' : ''}`;
+      text.appendChild(answer);
+
+      const when = document.createElement('td');
+      when.textContent = item.created_at.replace('T', ' ').replace('+00:00', ' UTC');
+
+      [mark, text, when].forEach((cell) => tr.appendChild(cell));
+      body.appendChild(tr);
+    });
+  }
+
   async function refresh() {
     const stats = await api('/api/admin/stats');
     $('stats').textContent =
       `Документов: ${stats.documents} · фрагментов: ${stats.chunks} · ` +
-      `эмбеддинги: ${stats.embeddings_provider} · модель: ${stats.model}`;
+      `эмбеддинги: ${stats.embeddings_provider} · модель: ${stats.model} · ` +
+      `диалогов: ${stats.conversations} · оценок: 👍 ${stats.liked} / 👎 ${stats.disliked}`;
+    await loadFeedback();
 
     const docs = await api('/api/admin/documents');
     const body = $('docs-body');
@@ -126,6 +167,9 @@
       setStatus($('auth-status'), err.message, 'err');
     }
   }
+
+  $('fb-all').addEventListener('click', () => loadFeedback());
+  $('fb-down').addEventListener('click', () => loadFeedback('down'));
 
   $('login').addEventListener('click', login);
   $('token').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });

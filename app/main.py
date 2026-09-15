@@ -13,13 +13,18 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from .config import DISCLAIMER, settings
+from .conversations import get_conversations
 from .ingest import SUPPORTED_SUFFIXES, UnsupportedFormat, load_and_chunk
 from .sections import TOPIC_FILTERS, TOPIC_LABELS, resolve_topics
 from .rag import answer_question
 from .schemas import (
     AskRequest,
     AskResponse,
+    ConversationResponse,
     DocumentInfo,
+    FeedbackRecord,
+    FeedbackRequest,
+    HistoryMessage,
     Source,
     StatsResponse,
     UploadResponse,
@@ -75,8 +80,21 @@ def ask(payload: AskRequest) -> AskResponse:
     question = payload.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Вопрос не может быть пустым.")
+
+    conversations = get_conversations()
+    conversation_id = payload.conversation_id or ""
+    if conversation_id and not conversations.conversation_exists(conversation_id):
+        # Диалог мог быть заведён в прошлой жизни базы — начинаем новый, а не
+        # роняем запрос: для пользователя это просто чат, который продолжается.
+        conversation_id = ""
+    if not conversation_id:
+        conversation_id = conversations.create_conversation()
+
+    history = conversations.history(conversation_id)
+    conversations.add_message(conversation_id, "user", question)
+
     try:
-        answer, hits, grounded = answer_question(question, payload.top_k)
+        answer, hits, grounded = answer_question(question, payload.top_k, history)
     except RuntimeError as exc:
         # Сюда попадают и отсутствующий ключ, и понятные отказы Anthropic.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -99,15 +117,58 @@ def ask(payload: AskRequest) -> AskResponse:
         )
         for hit in hits
     ]
-    return AskResponse(
-        answer=answer, sources=sources, disclaimer=DISCLAIMER, grounded=grounded
+    message_id = conversations.add_message(
+        conversation_id, "assistant", answer, [source.model_dump() for source in sources]
     )
+    return AskResponse(
+        answer=answer,
+        sources=sources,
+        disclaimer=DISCLAIMER,
+        grounded=grounded,
+        conversation_id=conversation_id,
+        message_id=message_id,
+    )
+
+
+@app.get("/api/conversations/{conversation_id}", response_model=ConversationResponse)
+def get_conversation(conversation_id: str) -> ConversationResponse:
+    """История диалога — чтобы чат восстанавливался после перезагрузки страницы."""
+    conversations = get_conversations()
+    if not conversations.conversation_exists(conversation_id):
+        raise HTTPException(status_code=404, detail="Диалог не найден.")
+    return ConversationResponse(
+        conversation_id=conversation_id,
+        messages=[
+            HistoryMessage(
+                id=message["id"],
+                role=message["role"],
+                content=message["content"],
+                sources=[Source(**source) for source in message["sources"]],
+                created_at=message["created_at"],
+            )
+            for message in conversations.history(conversation_id, limit=100)
+        ],
+    )
+
+
+@app.post("/api/feedback", response_model=FeedbackRecord)
+def leave_feedback(payload: FeedbackRequest) -> FeedbackRecord:
+    """Оценка ответа: пригодился или нет, и что именно не так."""
+    try:
+        record = get_conversations().save_feedback(
+            payload.message_id, payload.rating, payload.comment
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="Ответ не найден.")
+    return FeedbackRecord(**record)
 
 
 # --------------------------------------------------------------------- админка
 @app.get("/api/admin/stats", response_model=StatsResponse, dependencies=[Depends(require_admin)])
 def admin_stats() -> StatsResponse:
-    return StatsResponse(**get_store().stats())
+    return StatsResponse(**get_store().stats(), **get_conversations().feedback_stats())
 
 
 @app.get(
@@ -216,6 +277,21 @@ def available_topics() -> dict:
             for name in sorted(TOPIC_FILTERS)
         ]
     }
+
+
+@app.get(
+    "/api/admin/feedback",
+    response_model=List[FeedbackRecord],
+    dependencies=[Depends(require_admin)],
+)
+def admin_feedback(rating: Optional[str] = None, limit: int = 100) -> List[FeedbackRecord]:
+    """Оценки пользователей: по ним видно, где ассистент промахивается."""
+    if rating not in (None, "up", "down"):
+        raise HTTPException(status_code=422, detail="rating должен быть up или down.")
+    return [
+        FeedbackRecord(**record)
+        for record in get_conversations().list_feedback(limit=limit, rating=rating)
+    ]
 
 
 @app.post("/api/admin/search", dependencies=[Depends(require_admin)])

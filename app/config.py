@@ -41,7 +41,7 @@ os.environ.setdefault("CHROMA_TELEMETRY_IMPL", "chromadb.telemetry.product.NoopT
 @dataclass(frozen=True)
 class Settings:
     anthropic_api_key: str = _env("ANTHROPIC_API_KEY")
-    anthropic_model: str = _env("ANTHROPIC_MODEL", "claude-sonnet-5")
+    anthropic_model: str = _env("ANTHROPIC_MODEL", "claude-opus-5")
 
     embeddings_provider: str = _env("EMBEDDINGS_PROVIDER", "local").lower()
     voyage_api_key: str = _env("VOYAGE_API_KEY")

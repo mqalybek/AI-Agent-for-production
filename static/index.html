@@ -10,7 +10,7 @@
 <header class="top">
   <div>
     <h1>Ассистент по законодательству о недропользовании</h1>
-    <div class="sub">Ответы формируются только по загруженным нормативным документам</div>
+    <div class="sub">Диалог по загруженным нормативным документам: уточняйте и переспрашивайте</div>
   </div>
   <nav><a href="/admin">Админ-панель</a></nav>
 </header>
@@ -31,7 +31,11 @@
     <textarea id="question" placeholder="Например: какие основания для досрочного прекращения права недропользования?" required></textarea>
     <button type="submit" id="send">Спросить</button>
   </form>
-  <p class="muted">Enter — перенос строки, Ctrl+Enter — отправить.</p>
+  <p class="muted">
+    Ассистент помнит разговор — можно уточнять и переспрашивать.
+    Enter — перенос строки, Ctrl+Enter — отправить.
+    <button type="button" id="reset" class="linklike">Начать новый диалог</button>
+  </p>
 </main>
 
 <script src="/static/app.js"></script>

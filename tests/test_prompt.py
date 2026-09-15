@@ -47,3 +47,37 @@ def test_prompt_restricts_domain_to_hydrocarbons():
     """Уран и ТПИ — вне предметной области ассистента."""
     assert "только углеводороды" in SYSTEM_PROMPT
     assert "вне предметной области" in SYSTEM_PROMPT
+
+
+def test_prompt_handles_follow_up_and_disagreement():
+    """Ассистент должен понимать уточнения и разбирать возражения по нормам."""
+    assert "Разговор может быть многоходовым" in SYSTEM_PROMPT
+    assert "не спорь ради спора и не соглашайся автоматически" in SYSTEM_PROMPT
+
+
+def test_contextualize_without_history_does_not_call_model(monkeypatch):
+    """Первый вопрос самодостаточен — лишний вызов модели не нужен."""
+    from app import rag
+
+    def explode():
+        raise AssertionError("модель не должна вызываться")
+
+    monkeypatch.setattr(rag, "_client", explode)
+    assert rag.contextualize("Сроки периода разведки?", []) == "Сроки периода разведки?"
+
+
+def test_contextualize_falls_back_when_model_fails(monkeypatch):
+    """Если переписать вопрос не удалось, поиск идёт по склейке, а не падает."""
+    from app import rag
+
+    def failing_client():
+        raise RuntimeError("нет связи")
+
+    monkeypatch.setattr(rag, "_client", failing_client)
+    history = [
+        {"role": "user", "content": "Сроки периода разведки?"},
+        {"role": "assistant", "content": "Не более шести лет."},
+    ]
+    assert rag.contextualize("А если сложный проект?", history) == (
+        "Сроки периода разведки? А если сложный проект?"
+    )

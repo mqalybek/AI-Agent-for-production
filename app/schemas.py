@@ -22,6 +22,9 @@ class Source(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=3, max_length=2000)
     top_k: Optional[int] = Field(None, ge=1, le=20)
+    conversation_id: Optional[str] = Field(
+        None, description="Продолжение диалога; пусто — начинается новый"
+    )
 
 
 class AskResponse(BaseModel):
@@ -31,6 +34,39 @@ class AskResponse(BaseModel):
     grounded: bool = Field(
         True, description="False, если в документах не нашлось релевантных фрагментов"
     )
+    conversation_id: str = Field(..., description="Передайте его в следующем вопросе")
+    message_id: str = Field(..., description="Идентификатор ответа — по нему ставится оценка")
+
+
+class HistoryMessage(BaseModel):
+    id: str
+    role: str
+    content: str
+    sources: List[Source] = Field(default_factory=list)
+    created_at: str
+
+
+class ConversationResponse(BaseModel):
+    conversation_id: str
+    messages: List[HistoryMessage]
+
+
+class FeedbackRequest(BaseModel):
+    message_id: str
+    rating: str = Field(..., pattern="^(up|down)$", description="up или down")
+    comment: str = Field(
+        "", max_length=2000, description="Что именно не так — попадёт в админ-панель"
+    )
+
+
+class FeedbackRecord(BaseModel):
+    message_id: str
+    conversation_id: str
+    rating: str
+    comment: str = ""
+    question: str = ""
+    answer: str = ""
+    created_at: str
 
 
 class DocumentInfo(BaseModel):
@@ -60,3 +96,6 @@ class StatsResponse(BaseModel):
     chunks: int
     embeddings_provider: str
     model: str
+    conversations: int = 0
+    liked: int = 0
+    disliked: int = 0

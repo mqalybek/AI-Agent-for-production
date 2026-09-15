@@ -145,3 +145,54 @@ th { color: var(--muted); font-weight: 600; }
   animation: dots 1.2s steps(4, end) infinite;
 }
 @keyframes dots { 0% { content: ""; } 33% { content: "."; } 66% { content: ".."; } 100% { content: "…"; } }
+
+/* --- диалог: оценка ответа и раскрывающиеся источники --- */
+.sources > summary {
+  cursor: pointer;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.sources > summary::marker { color: var(--accent); }
+
+.feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.feedback button.vote {
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.feedback button.vote.chosen {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.feedback-status { font-size: 13px; color: var(--muted); }
+
+.feedback-comment { margin-top: 10px; display: flex; gap: 8px; align-items: flex-end; }
+.feedback-comment textarea { min-height: 44px; }
+.feedback-comment button { white-space: nowrap; padding: 9px 14px; font-size: 13px; }
+
+button.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Оценки в админ-панели */
+.rating-up { color: #1f7a3d; font-weight: 600; }
+.rating-down { color: #b3261e; font-weight: 600; }
+.feedback-row td { vertical-align: top; }
+.feedback-row .quote { color: var(--muted); font-size: 12px; margin-top: 4px; white-space: pre-wrap; }

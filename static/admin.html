@@ -72,6 +72,22 @@
     </div>
 
     <div class="card">
+      <h2>Оценки пользователей</h2>
+      <p class="muted">Что люди отметили как полезное и где ассистент ошибся.</p>
+      <div class="row" style="margin-bottom:10px">
+        <button class="ghost" id="fb-all" type="button">Все</button>
+        <button class="ghost" id="fb-down" type="button">Только замечания</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Оценка</th><th>Вопрос и замечание</th><th>Когда</th></tr>
+        </thead>
+        <tbody id="feedback-body"></tbody>
+      </table>
+      <div class="status" id="feedback-status"></div>
+    </div>
+
+    <div class="card">
       <h2>Проверка поиска (без вызова модели)</h2>
       <input type="text" id="probe" placeholder="Тестовый запрос к векторному индексу">
       <div style="margin-top:10px"><button class="ghost" id="probe-btn" type="button">Найти фрагменты</button></div>
