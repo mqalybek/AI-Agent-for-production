@@ -152,7 +152,7 @@ def _client() -> Anthropic:
     if not settings.anthropic_api_key:
         raise RuntimeError(
             "ANTHROPIC_API_KEY не задан — генерация ответов недоступна. "
-            "Укажите ключ в .env."
+            "Укажите ключ в .env и перезапустите сервер: файл читается при старте."
         )
     return Anthropic(api_key=settings.anthropic_api_key)
 
@@ -168,7 +168,8 @@ def check_connection() -> dict:
         return {
             "status": "no_key",
             "message": "ANTHROPIC_API_KEY не указан в файле .env. "
-            "Ключ создаётся на console.anthropic.com → Settings → API keys.",
+            "Ключ создаётся на console.anthropic.com → Settings → API keys. "
+            "После правки .env перезапустите сервер: файл читается при старте.",
             "model": settings.anthropic_model,
         }
     try:
@@ -181,7 +182,8 @@ def check_connection() -> dict:
         return {
             "status": "invalid_key",
             "message": "Anthropic отклонил ключ. Проверьте ANTHROPIC_API_KEY в .env — "
-            "возможно, ключ отозван или скопирован не полностью.",
+            "возможно, ключ отозван, скопирован не полностью или сервер ещё не "
+            "перезапущен после правки файла (.env читается при старте).",
             "model": settings.anthropic_model,
         }
     except PermissionDeniedError as exc:
@@ -262,8 +264,9 @@ def answer_question(
     # просто открыл сайт и задал вопрос.
     except AuthenticationError as exc:
         raise ModelUnavailable(
-            "Anthropic отклонил ключ API. Проверьте ANTHROPIC_API_KEY в файле .env — "
-            "ключ выдаётся на console.anthropic.com."
+            "Anthropic отклонил ключ API. Проверьте ANTHROPIC_API_KEY в файле .env "
+            "(ключ выдаётся на console.anthropic.com) и перезапустите сервер — "
+            "файл .env читается один раз при старте."
         ) from exc
     except PermissionDeniedError as exc:
         raise ModelUnavailable(
