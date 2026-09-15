@@ -1,3 +1,5 @@
-# Windows-скрипт должен приезжать с CRLF, иначе cmd.exe спотыкается о строки.
-*.bat text eol=crlf
+# start.bat лежит в кодировке CP866: именно её ждёт cmd.exe на русской Windows,
+# иначе сообщения скрипта приезжают мусором. Git не должен трогать эти байты.
+start.bat -text
+
 *.sh  text eol=lf

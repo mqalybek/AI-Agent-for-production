@@ -1,35 +1,35 @@
 @echo off
-rem –ó–∞–ø—É—Å–∫ –∞—Å—Å–∏—Å—Ç–µ–Ω—Ç–∞ –æ–¥–Ω–æ–π –∫–æ–º–∞–Ω–¥–æ–π: –¥–≤–∞–∂–¥—ã –∫–ª–∏–∫–Ω–∏—Ç–µ –ø–æ —ç—Ç–æ–º—É —Ñ–∞–π–ª—É.
-rem –°–∫—Ä–∏–ø—Ç –∏–¥–µ–º–ø–æ—Ç–µ–Ω—Ç–Ω—ã–π: –æ–∫—Ä—É–∂–µ–Ω–∏–µ –∏ –∏–Ω–¥–µ–∫—Å —Å–æ–∑–¥–∞—é—Ç—Å—è –ø—Ä–∏ –ø–µ—Ä–≤–æ–º –∑–∞–ø—É—Å–∫–µ.
+rem á†Ø„·™ †··®·‚•≠‚† Æ§≠Æ© ™Æ¨†≠§Æ©: §¢†¶§Î ™´®™≠®‚• ØÆ Ì‚Æ¨„ ‰†©´„.
+rem ë™‡®Ø‚ ®§•¨ØÆ‚•≠‚≠Î©: Æ™‡„¶•≠®• ® ®≠§•™· ·Æß§†Ó‚·Ô Ø‡® Ø•‡¢Æ¨ ß†Ø„·™•.
 setlocal
 cd /d "%~dp0"
-chcp 65001 >nul
+chcp 866 >nul
 
 set "HOST=127.0.0.1"
 set "PORT=8000"
 
 where python >nul 2>nul
 if errorlevel 1 (
-    echo –ù–µ –Ω–∞–π–¥–µ–Ω Python. –£—Å—Ç–∞–Ω–æ–≤–∏—Ç–µ Python 3.10 –∏–ª–∏ –Ω–æ–≤–µ–µ —Å https://www.python.org/downloads/
-    echo –ü—Ä–∏ —É—Å—Ç–∞–Ω–æ–≤–∫–µ –æ—Ç–º–µ—Ç—å—Ç–µ –≥–∞–ª–æ—á–∫—É "Add python.exe to PATH".
+    echo ç• ≠†©§•≠ Python. ì·‚†≠Æ¢®‚• Python 3.10 ®´® ≠Æ¢•• · https://www.python.org/downloads/
+    echo è‡® „·‚†≠Æ¢™• Æ‚¨•‚Ï‚• £†´ÆÁ™„ "Add python.exe to PATH".
     pause
     exit /b 1
 )
 
 if not exist .venv (
     echo.
-    echo ==^> –°–æ–∑–¥–∞—é –≤–∏—Ä—Ç—É–∞–ª—å–Ω–æ–µ –æ–∫—Ä—É–∂–µ–Ω–∏–µ
+    echo ==^> ëÆß§†Ó ¢®‡‚„†´Ï≠Æ• Æ™‡„¶•≠®•
     python -m venv .venv
 )
 call .venv\Scripts\activate.bat
 
 if not exist .venv\.deps-installed (
     echo.
-    echo ==^> –°—Ç–∞–≤–ª—é –∑–∞–≤–∏—Å–∏–º–æ—Å—Ç–∏, –ø–µ—Ä–≤—ã–π —Ä–∞–∑ —ç—Ç–æ –ø–∞—Ä–∞ –º–∏–Ω—É—Ç
+    echo ==^> ë‚†¢´Ó ß†¢®·®¨Æ·‚®, Ø•‡¢Î© ‡†ß Ì‚Æ Ø†‡† ¨®≠„‚
     python -m pip install --quiet --upgrade pip
     python -m pip install --quiet -r requirements.txt
     if errorlevel 1 (
-        echo –ù–µ —É–¥–∞–ª–æ—Å—å –ø–æ—Å—Ç–∞–≤–∏—Ç—å –∑–∞–≤–∏—Å–∏–º–æ—Å—Ç–∏.
+        echo ç• „§†´Æ·Ï ØÆ·‚†¢®‚Ï ß†¢®·®¨Æ·‚®.
         pause
         exit /b 1
     )
@@ -38,35 +38,35 @@ if not exist .venv\.deps-installed (
 
 if not exist .env (
     echo.
-    echo ==^> –°–æ–∑–¥–∞—é .env
+    echo ==^> ëÆß§†Ó .env
     copy /y .env.example .env >nul
     echo.
-    echo –§–∞–π–ª .env —Å–æ–∑–¥–∞–Ω. –û—Ç–∫—Ä–æ–π—Ç–µ –µ–≥–æ –±–ª–æ–∫–Ω–æ—Ç–æ–º –∏ –≤–ø–∏—à–∏—Ç–µ –¥–≤–∞ –∑–Ω–∞—á–µ–Ω–∏—è:
+    echo î†©´ .env ·Æß§†≠. é‚™‡Æ©‚• •£Æ °´Æ™≠Æ‚Æ¨ ® ¢Ø®Ë®‚• §¢† ß≠†Á•≠®Ô:
     echo.
-    echo   ANTHROPIC_API_KEY=sk-ant-...   –∫–ª—é—á —Å https://console.anthropic.com/settings/keys
-    echo   ADMIN_TOKEN=...                –ª—é–±–æ–π –ø–∞—Ä–æ–ª—å –¥–ª—è –≤—Ö–æ–¥–∞ –≤ –∞–¥–º–∏–Ω-–ø–∞–Ω–µ–ª—å
+    echo   ANTHROPIC_API_KEY=sk-ant-...   ™´ÓÁ · https://console.anthropic.com/settings/keys
+    echo   ADMIN_TOKEN=...                ´Ó°Æ© Ø†‡Æ´Ï §´Ô ¢ÂÆ§† ¢ †§¨®≠-Ø†≠•´Ï
     echo.
-    echo –ü–æ—Ç–æ–º –∑–∞–ø—É—Å—Ç–∏—Ç–µ start.bat –µ—â—ë —Ä–∞–∑.
+    echo èÆ‚Æ¨ ß†Ø„·‚®‚• start.bat •ÈÒ ‡†ß.
     pause
     exit /b 1
 )
 
 if not exist data\chroma (
     echo.
-    echo ==^> –ò–Ω–¥–µ–∫—Å–∏—Ä—É—é –¥–æ–∫—É–º–µ–Ω—Ç—ã, —Å–∫–∞—á–∞–µ—Ç—Å—è –º–æ–¥–µ–ª—å –ø–æ–∏—Å–∫–∞, –æ–∫–æ–ª–æ 80 –ú–ë
+    echo ==^> à≠§•™·®‡„Ó §Æ™„¨•≠‚Î, ·™†Á†•‚·Ô ¨Æ§•´Ï ØÆ®·™†, Æ™Æ´Æ 80 åÅ
     python scripts\index_documents.py
     if errorlevel 1 (
-        echo –ò–Ω–¥–µ–∫—Å–∞—Ü–∏—è –Ω–µ —É–¥–∞–ª–∞—Å—å.
+        echo à≠§•™·†Ê®Ô ≠• „§†´†·Ï.
         pause
         exit /b 1
     )
 )
 
 echo.
-echo ==^> –°–µ—Ä–≤–µ—Ä –∑–∞–ø—É—Å–∫–∞–µ—Ç—Å—è
-echo   —á–∞—Ç          http://%HOST%:%PORT%/
-echo   –∞–¥–º–∏–Ω-–ø–∞–Ω–µ–ª—å http://%HOST%:%PORT%/admin
-echo   –æ—Å—Ç–∞–Ω–æ–≤–∏—Ç—å   Ctrl+C
+echo ==^> ë•‡¢•‡ ß†Ø„·™†•‚·Ô
+echo   Á†‚          http://%HOST%:%PORT%/
+echo   †§¨®≠-Ø†≠•´Ï http://%HOST%:%PORT%/admin
+echo   Æ·‚†≠Æ¢®‚Ï   Ctrl+C
 start "" http://%HOST%:%PORT%/
 python -m uvicorn app.main:app --host %HOST% --port %PORT%
 pause

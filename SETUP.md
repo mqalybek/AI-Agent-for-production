@@ -102,6 +102,45 @@ Claude». Возможные ответы:
 углеводородам разделы про уран и твёрдые полезные ископаемые — шум, который
 только мешает поиску.
 
+## Запуск из PowerShell
+
+`start.bat` проще всего запускать **двойным кликом** в проводнике. Если хотите из
+PowerShell — учтите две его особенности:
+
+```powershell
+cd "F:\AI Agent\AI-Agent-for-production-main\AI-Agent-for-production-main"
+.\start.bat
+```
+
+Точка с обратным слэшем обязательна: PowerShell не ищет программы в текущей
+папке, поэтому просто `start.bat` он не найдёт.
+
+И ни в коем случае не `python start.bat` — так вы просите Python выполнить
+пакетный файл как программу на Python, отсюда `SyntaxError: invalid syntax` на
+первой же строке `@echo off`. Батник исполняет Windows, а не Python.
+
+Команда `install requirements.txt` тоже не сработает: правильная форма —
+`pip install -r requirements.txt`, но вручную её набирать не нужно, скрипт
+ставит зависимости сам.
+
+### Если батник капризничает — то же самое вручную
+
+Четыре команды в PowerShell из папки проекта. Виртуальное окружение специально
+не активируется: мы обращаемся к его Python напрямую, и это обходит запрет
+PowerShell на запуск скриптов (`ExecutionPolicy`), о который спотыкается
+`Activate.ps1`.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+copy .env.example .env        # откройте .env и впишите ключ и пароль админа
+.\.venv\Scripts\python.exe scripts\index_documents.py
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Последняя команда и есть запуск сервера: она не завершается, пока работает сайт.
+Окно PowerShell после этого не закрывайте — можно свернуть.
+
 ## Если браузер пишет «Не удаётся получить доступ к сайту»
 
 `ERR_CONNECTION_REFUSED` на `127.0.0.1:8000` означает ровно одно: **на вашем
