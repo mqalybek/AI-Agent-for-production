@@ -92,6 +92,22 @@
     });
   }
 
+  /* Проверка ключа Anthropic: стоит доли цента и сразу отвечает на вопрос
+     «почему ассистент не отвечает» — ключа нет, ключ неверный или нет средств. */
+  async function checkModel() {
+    const box = $('model-status');
+    box.textContent = 'Проверяю…';
+    box.className = 'status';
+    try {
+      const data = await api('/api/admin/model-status');
+      box.textContent = data.message;
+      box.className = data.status === 'ok' ? 'status ok' : 'status err';
+    } catch (err) {
+      box.textContent = err.message;
+      box.className = 'status err';
+    }
+  }
+
   async function refresh() {
     const stats = await api('/api/admin/stats');
     $('stats').textContent =
@@ -159,6 +175,7 @@
     try {
       await refresh();
       await loadTopics();
+      await checkModel();
       sessionStorage.setItem(KEY, state.token);
       setStatus($('auth-status'), 'Доступ разрешён.', 'ok');
       showPanel(true);
@@ -168,6 +185,7 @@
     }
   }
 
+  $('check-model').addEventListener('click', checkModel);
   $('fb-all').addEventListener('click', () => loadFeedback());
   $('fb-down').addEventListener('click', () => loadFeedback('down'));
 

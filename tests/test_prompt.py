@@ -81,3 +81,49 @@ def test_contextualize_falls_back_when_model_fails(monkeypatch):
     assert rag.contextualize("А если сложный проект?", history) == (
         "Сроки периода разведки? А если сложный проект?"
     )
+
+
+def test_check_connection_reports_missing_key(monkeypatch):
+    """Без ключа проверка не ходит в сеть, а прямо говорит, чего не хватает."""
+    import dataclasses
+
+    from app import rag
+
+    # Settings — frozen dataclass, поэтому подменяем объект целиком.
+    monkeypatch.setattr(
+        rag, "settings", dataclasses.replace(rag.settings, anthropic_api_key="")
+    )
+    result = rag.check_connection()
+    assert result["status"] == "no_key"
+    assert "ANTHROPIC_API_KEY" in result["message"]
+
+
+def test_check_connection_explains_empty_balance(monkeypatch):
+    """Отказ в доступе к модели чаще всего означает пустой счёт — так и пишем."""
+    import dataclasses
+
+    import httpx
+    from anthropic import PermissionDeniedError
+
+    from app import rag
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            raise PermissionDeniedError(
+                "forbidden",
+                response=httpx.Response(
+                    403, request=httpx.Request("POST", "https://api.anthropic.com")
+                ),
+                body=None,
+            )
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    monkeypatch.setattr(
+        rag, "settings", dataclasses.replace(rag.settings, anthropic_api_key="sk-ant-test")
+    )
+    monkeypatch.setattr(rag, "_client", lambda: FakeClient())
+    result = rag.check_connection()
+    assert result["status"] == "no_access"
+    assert "пополните баланс" in result["message"].lower()

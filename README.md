@@ -58,6 +58,9 @@ python3 scripts/index_documents.py --reset
 
 Генерация ответа в обоих случаях идёт через Claude.
 
+> **Ставите первый раз?** Пошаговая инструкция от регистрации в Anthropic до
+> первого ответа — в [SETUP.md](SETUP.md).
+
 ## Как запустить и начать пользоваться
 
 Это не статический сайт: нужен Python-сервер, который держит поиск и ходит в
@@ -260,6 +263,7 @@ docker run -d -p 8000:8000 -v subsoil-data:/data --env-file .env subsoil-rag
 | POST | `/api/feedback` | публичный | оценка ответа (`up`/`down` + замечание) |
 | GET | `/api/admin/stats` | токен | документы/фрагменты/провайдеры |
 | GET | `/api/admin/documents` | токен | список с метаданными |
+| GET | `/api/admin/model-status` | токен | живая проверка ключа Anthropic |
 | GET | `/api/admin/topics` | токен | темы, которые можно не индексировать |
 | GET | `/api/admin/feedback` | токен | оценки пользователей (`?rating=down`) |
 | POST | `/api/admin/documents` | токен | загрузка (`file`, `title`, `note`, `replace`, `exclude_topics`) |

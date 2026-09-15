@@ -16,7 +16,7 @@ from .config import DISCLAIMER, settings
 from .conversations import get_conversations
 from .ingest import SUPPORTED_SUFFIXES, UnsupportedFormat, load_and_chunk
 from .sections import TOPIC_FILTERS, TOPIC_LABELS, resolve_topics
-from .rag import answer_question
+from .rag import answer_question, check_connection
 from .schemas import (
     AskRequest,
     AskResponse,
@@ -266,6 +266,12 @@ def delete_document(doc_id: str) -> dict:
     if not get_store().delete_document(doc_id):
         raise HTTPException(status_code=404, detail="Документ не найден.")
     return {"deleted": doc_id}
+
+
+@app.get("/api/admin/model-status", dependencies=[Depends(require_admin)])
+def model_status() -> dict:
+    """Живая проверка ключа Anthropic — стоит доли цента."""
+    return check_connection()
 
 
 @app.get("/api/admin/topics", dependencies=[Depends(require_admin)])

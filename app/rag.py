@@ -157,6 +157,67 @@ def _client() -> Anthropic:
     return Anthropic(api_key=settings.anthropic_api_key)
 
 
+def check_connection() -> dict:
+    """Проверить, работает ли ключ Anthropic.
+
+    Делает минимальный запрос к дешёвой модели (доли цента) и переводит ответ
+    в понятный статус: администратору важно знать, почему ассистент молчит —
+    ключ не вписан, ключ неверный или на счету нет средств.
+    """
+    if not settings.anthropic_api_key:
+        return {
+            "status": "no_key",
+            "message": "ANTHROPIC_API_KEY не указан в файле .env. "
+            "Ключ создаётся на console.anthropic.com → Settings → API keys.",
+            "model": settings.anthropic_model,
+        }
+    try:
+        _client().messages.create(
+            model=CONTEXTUALIZE_MODEL,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+    except AuthenticationError:
+        return {
+            "status": "invalid_key",
+            "message": "Anthropic отклонил ключ. Проверьте ANTHROPIC_API_KEY в .env — "
+            "возможно, ключ отозван или скопирован не полностью.",
+            "model": settings.anthropic_model,
+        }
+    except PermissionDeniedError as exc:
+        return {
+            "status": "no_access",
+            "message": "Ключ принят, но доступ к модели закрыт. Обычно это значит, "
+            f"что на счету нет средств: пополните баланс в Anthropic Console. ({exc})",
+            "model": settings.anthropic_model,
+        }
+    except RateLimitError:
+        return {
+            "status": "rate_limited",
+            "message": "Ключ работает, но сейчас достигнут лимит запросов. "
+            "Подождите минуту.",
+            "model": settings.anthropic_model,
+        }
+    except APIConnectionError:
+        return {
+            "status": "no_network",
+            "message": "Нет связи с Anthropic. Проверьте интернет и настройки прокси.",
+            "model": settings.anthropic_model,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Проверка подключения к Anthropic не удалась")
+        return {
+            "status": "error",
+            "message": f"Неожиданная ошибка при обращении к Anthropic: {exc}",
+            "model": settings.anthropic_model,
+        }
+    return {
+        "status": "ok",
+        "message": f"Ключ работает, ответы формирует модель {settings.anthropic_model}.",
+        "model": settings.anthropic_model,
+    }
+
+
 def answer_question(
     question: str,
     top_k: Optional[int] = None,
