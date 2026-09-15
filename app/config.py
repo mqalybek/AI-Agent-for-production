@@ -69,6 +69,9 @@ class Settings:
 
     admin_token: str = _env("ADMIN_TOKEN")
 
+    # Режим для serverless: индекс читается из файла, ChromaDB не нужен.
+    lite_index: bool = _env("LITE_INDEX", "").lower() in {"1", "true", "yes"}
+
     chunk_size: int = _env_int("CHUNK_SIZE", 1200)
     chunk_overlap: int = _env_int("CHUNK_OVERLAP", 200)
     top_k: int = _env_int("TOP_K", 6)

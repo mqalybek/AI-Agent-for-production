@@ -30,7 +30,7 @@ from .schemas import (
     StatsResponse,
     UploadResponse,
 )
-from .store import get_store
+from .storage import get_store
 
 logger = logging.getLogger("subsoil-rag")
 

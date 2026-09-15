@@ -50,3 +50,62 @@ def test_rrf_weights_shift_the_winner():
     assert balanced["a"] == balanced["b"]
     weighted = reciprocal_rank_fusion([(lexical, 1.0), (vector, 0.6)])
     assert weighted["a"] > weighted["b"]
+
+
+def test_lite_store_searches_without_chromadb(tmp_path):
+    """Лёгкое хранилище ищет по файлу — так работает serverless-версия."""
+    import json
+
+    from app.lite_store import LiteStore
+
+    index = tmp_path / "index_lite.json"
+    index.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "chunks": [
+                    {
+                        "id": "c1",
+                        "text": "Период разведки составляет не более шести последовательных лет.",
+                        "title": "Кодекс РК",
+                        "doc_id": "d1",
+                        "locator": "Статья 116",
+                        "chapter": "Глава 17",
+                        "page": -1,
+                    },
+                    {
+                        "id": "c2",
+                        "text": "Пробная эксплуатация проводится в исследовательских целях.",
+                        "title": "Единые правила",
+                        "doc_id": "d2",
+                        "locator": "пункт 30",
+                        "chapter": "Глава 3",
+                        "page": 4,
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    store = LiteStore(index)
+    hits = store.search("продолжительность периода разведки", 2)
+    assert hits[0]["locator"] == "Статья 116"
+    assert hits[0]["score"] == 1.0  # лучший результат нормируется к единице
+    assert hits[0]["page"] is None and store.search("пробная эксплуатация", 1)[0]["page"] == 4
+
+    assert store.stats()["chunks"] == 2
+    assert store.stats()["embeddings_provider"] == "bm25-only"
+    assert {d["title"] for d in store.list_documents()} == {"Кодекс РК", "Единые правила"}
+
+
+def test_lite_store_reports_missing_index(tmp_path):
+    from app.lite_store import LiteStore
+
+    try:
+        LiteStore(tmp_path / "нет.json")
+    except FileNotFoundError as exc:
+        assert "export_lite_index" in str(exc)
+    else:
+        raise AssertionError("ожидалась ошибка об отсутствующем индексе")

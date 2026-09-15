@@ -1,0 +1,7 @@
+# Зависимости serverless-версии (Vercel ставит их для функции api/index.py): без chromadb, pypdf и python-docx —
+# индекс собирается заранее, разбор файлов на сервере не нужен.
+fastapi==0.115.6
+pydantic==2.10.4
+anthropic==0.42.0
+httpx==0.28.1
+python-multipart==0.0.20

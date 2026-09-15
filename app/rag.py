@@ -13,7 +13,7 @@ from anthropic import (
 )
 
 from .config import DISCLAIMER, settings
-from .store import get_store
+from .storage import get_store
 
 logger = logging.getLogger("subsoil-rag.rag")
 

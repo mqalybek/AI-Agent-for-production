@@ -1,4 +1,6 @@
 data/
+# Индекс для serverless нужен в репозитории: на Vercel его негде построить.
+!data/index_lite.json.gz
 .env
 venv/
 .venv/
