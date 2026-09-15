@@ -4,15 +4,16 @@ from __future__ import annotations
 import logging
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import AsyncIterator, List, Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
-from .config import DISCLAIMER, settings
+from .config import DEFAULT_ADMIN_TOKEN, DISCLAIMER, settings
 from .conversations import get_conversations
 from .ingest import SUPPORTED_SUFFIXES, UnsupportedFormat, load_and_chunk
 from .sections import TOPIC_FILTERS, TOPIC_LABELS, resolve_topics
@@ -35,7 +36,20 @@ logger = logging.getLogger("subsoil-rag")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Напомнить про пароль из шаблона: с ним админка защищена только на словах."""
+    if settings.admin_token == DEFAULT_ADMIN_TOKEN:
+        logger.warning(
+            "ADMIN_TOKEN остался шаблонным (%s). Смените его в .env, прежде чем "
+            "открывать сайт кому-то ещё.",
+            DEFAULT_ADMIN_TOKEN,
+        )
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="RAG-ассистент по законодательству о недропользовании",
     version="1.0.0",
     description=(
@@ -182,6 +196,7 @@ def admin_stats() -> StatsResponse:
         **get_store().stats(),
         **conversations.feedback_stats(),
         **conversations.usage_stats(),
+        admin_token_is_default=settings.admin_token == DEFAULT_ADMIN_TOKEN,
     )
 
 
@@ -333,3 +348,6 @@ def admin_page() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+

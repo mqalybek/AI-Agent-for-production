@@ -118,3 +118,6 @@ class StatsResponse(BaseModel):
         None, description="Оценка расходов по прайсу Anthropic, в долларах"
     )
     by_model: List[ModelUsage] = Field(default_factory=list)
+    admin_token_is_default: bool = Field(
+        False, description="True, если пароль администратора остался из шаблона"
+    )

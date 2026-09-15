@@ -122,6 +122,10 @@
       `эмбеддинги: ${stats.embeddings_provider} · модель: ${stats.model} · ` +
       `диалогов: ${stats.conversations} · оценок: 👍 ${stats.liked} / 👎 ${stats.disliked}`;
 
+    /* Пароль из шаблона знает любой, кто видел репозиторий. */
+    const warning = $('token-warning');
+    warning.classList.toggle('hidden', !stats.admin_token_is_default);
+
     /* Фактический расход: считается по ответам модели, а не по оценкам «на глаз». */
     const usage = $('usage');
     usage.textContent = '';
