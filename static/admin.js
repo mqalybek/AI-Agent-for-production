@@ -115,6 +115,26 @@
 
   const thousands = (n) => n.toLocaleString('ru-RU');
 
+  /* Список «Новая редакция документа»: замена выбирается явно, а не по
+     совпадению названия — иначе опечатка в названии оставит в базе обе
+     редакции, и ассистент начнёт цитировать отменённую норму. */
+  function fillReplaceOptions(docs) {
+    const select = $('replace-id');
+    const chosen = select.value;
+    select.textContent = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = '— нет, это новый документ —';
+    select.appendChild(none);
+    docs.forEach((doc) => {
+      const option = document.createElement('option');
+      option.value = doc.id;
+      option.textContent = doc.note ? `${doc.title} (${doc.note})` : doc.title;
+      select.appendChild(option);
+    });
+    select.value = chosen;
+  }
+
   async function refresh() {
     const stats = await api('/api/admin/stats');
     $('stats').textContent =
@@ -157,6 +177,7 @@
     await loadFeedback();
 
     const docs = await api('/api/admin/documents');
+    fillReplaceOptions(docs);
     const body = $('docs-body');
     body.textContent = '';
     if (!docs.length) {
@@ -247,7 +268,8 @@
     form.append('file', file);
     form.append('title', $('title').value.trim());
     form.append('note', $('note').value.trim());
-    form.append('replace', $('replace').checked ? 'true' : 'false');
+    form.append('replace_id', $('replace-id').value);
+    form.append('force_new', $('force-new').checked ? 'true' : 'false');
     form.append('exclude_topics', selectedTopics());
 
     $('upload-btn').disabled = true;

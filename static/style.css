@@ -97,7 +97,7 @@ main {
 .source .excerpt { color: var(--muted); margin-top: 4px; white-space: pre-wrap; }
 
 form.ask { display: flex; gap: 10px; align-items: flex-end; }
-textarea, input[type="text"], input[type="password"], input[type="file"] {
+textarea, select, input[type="text"], input[type="password"], input[type="file"] {
   width: 100%;
   font: inherit;
   color: var(--ink);

@@ -1,6 +1,7 @@
 """Хранилище документов: ChromaDB для векторов + JSON-реестр для метаданных."""
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -28,6 +29,22 @@ _lock = threading.Lock()
 # Телеметрия отключена настройкой, но клиент chromadb всё равно пишет в лог
 # сообщения о неудачной отправке событий — они нам не нужны.
 logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+
+
+def index_text(chunk: Chunk) -> str:
+    """Текст фрагмента в том виде, в каком он лежит в индексе.
+
+    Заголовок главы попадает в индексируемый текст: он даёт контекст и
+    векторной модели, и лексическому поиску.
+    """
+    header = " ".join(part for part in (chunk.chapter, chunk.locator) if part)
+    return f"{header}\n{chunk.text}" if header else chunk.text
+
+
+def fingerprint(text: str) -> str:
+    """Отпечаток фрагмента без учёта пробелов и регистра."""
+    normalized = " ".join(text.split()).casefold()
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
 
 
 def _now() -> str:
@@ -84,6 +101,29 @@ class DocumentStore:
                 return doc
         return None
 
+    def find_similar(self, chunks: List[Chunk]) -> Optional[dict]:
+        """Найти уже загруженный документ, с которым новый файл почти совпадает.
+
+        Новая редакция кодекса на девять десятых повторяет старую. Если её
+        загрузить как отдельный документ, в индексе окажутся обе версии, и
+        модель получит рядом действующую и отменённую норму. Поэтому сравниваем
+        отпечатки фрагментов: нарезка идёт по статьям, и неизменённые статьи
+        дают те же самые фрагменты.
+        """
+        new_prints = {fingerprint(index_text(chunk)) for chunk in chunks}
+        if not new_prints:
+            return None
+        best: Optional[dict] = None
+        for doc in self._read_registry().values():
+            stored = self._collection.get(where={"doc_id": doc["id"]}, include=["documents"])
+            old_prints = {fingerprint(text) for text in stored.get("documents") or []}
+            if not old_prints:
+                continue
+            share = len(new_prints & old_prints) / len(new_prints)
+            if best is None or share > best["share"]:
+                best = {"document": doc, "share": share}
+        return best
+
     # ------------------------------------------------------------- индексация
     def add_document(
         self,
@@ -106,10 +146,7 @@ class DocumentStore:
         for chunk in chunks:
             chunk_id = f"{doc_id}:{chunk.index}"
             ids.append(chunk_id)
-            # Заголовок главы попадает в индексируемый текст: он даёт контекст
-            # и векторной модели, и лексическому поиску.
-            header = " ".join(part for part in (chunk.chapter, chunk.locator) if part)
-            documents.append(f"{header}\n{chunk.text}" if header else chunk.text)
+            documents.append(index_text(chunk))
             metadatas.append(
                 {
                     "doc_id": doc_id,

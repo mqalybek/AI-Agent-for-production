@@ -70,9 +70,17 @@
             <input type="text" id="note" placeholder="Например: ред. от 01.01.2025">
           </div>
         </div>
+        <label for="replace-id">Новая редакция документа</label>
+        <select id="replace-id">
+          <option value="">— нет, это новый документ —</option>
+        </select>
+        <p class="muted" style="margin:4px 0 0">
+          Вышла новая редакция кодекса или правил? Выберите здесь старую версию:
+          она будет удалена из базы, и ответы пойдут только по новой.
+        </p>
         <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <input type="checkbox" id="replace" style="width:auto">
-          Обновить существующий документ с таким же названием (переиндексация)
+          <input type="checkbox" id="force-new" style="width:auto">
+          Это отдельный документ, а не редакция уже загруженного
         </label>
 
         <label>Не индексировать разделы по темам</label>

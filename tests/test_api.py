@@ -208,3 +208,116 @@ def test_lite_mode_refuses_document_upload(chat_client, monkeypatch):
     )
     assert response.status_code == 503
     assert "облегчённом режиме" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------
+# Новая редакция документа: настоящее хранилище ChromaDB во временном каталоге
+
+
+@pytest.fixture
+def real_store_client(monkeypatch, tmp_path):
+    """Клиент с настоящим хранилищем — замену и дубли нужно проверять на нём."""
+    pytest.importorskip("chromadb")
+    import dataclasses
+
+    from app import config, store as store_module
+
+    patched = dataclasses.replace(
+        config.settings,
+        chroma_dir=str(tmp_path / "chroma"),
+        upload_dir=str(tmp_path / "uploads"),
+        lite_index=False,
+    )
+    monkeypatch.setattr(store_module, "settings", patched)
+    # Векторная модель для проверки логики замены не нужна — подменяем её
+    # детерминированной заглушкой, чтобы тест не качал 80 МБ.
+    class FakeEmbedding:
+        def __call__(self, input):
+            return [[float(len(text) % 7), 1.0, 0.5] for text in input]
+
+        def name(self):
+            return "fake"
+
+    monkeypatch.setattr(store_module, "get_embedding_function", lambda: FakeEmbedding())
+    store = store_module.DocumentStore()
+    monkeypatch.setattr(main, "get_store", lambda: store)
+    client = TestClient(main.app)
+    client.store = store
+    return client
+
+
+ARTICLES = "\n".join(
+    f"Статья {n}. Норма номер {n}\n1. Содержание нормы {n} о недропользовании "
+    f"углеводородов, достаточно длинное, чтобы стать отдельным фрагментом."
+    for n in range(1, 21)
+)
+
+
+def _upload(client, text, **data):
+    import io
+
+    return client.post(
+        "/api/admin/documents",
+        headers={"Authorization": "Bearer test-token"},
+        files={"file": ("act.txt", io.BytesIO(text.encode("utf-8")), "text/plain")},
+        data=data,
+    )
+
+
+def test_new_edition_replaces_old_one(real_store_client):
+    """Выбранная редакция заменяется: документ один, старых фрагментов нет."""
+    first = _upload(real_store_client, ARTICLES, title="Кодекс о недрах").json()
+    doc_id = first["document"]["id"]
+
+    new_text = ARTICLES.replace("Содержание нормы 5", "НОВАЯ РЕДАКЦИЯ нормы 5")
+    second = _upload(real_store_client, new_text, replace_id=doc_id, note="ред. 2026")
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert body["replaced"] is True
+    assert body["document"]["id"] == doc_id
+    assert body["document"]["title"] == "Кодекс о недрах"  # пустое название не затирает
+    assert body["document"]["note"] == "ред. 2026"
+
+    store = real_store_client.store
+    assert len(store.list_documents()) == 1
+    texts = " ".join(store._collection.get(include=["documents"])["documents"])
+    assert "НОВАЯ РЕДАКЦИЯ нормы 5" in texts
+    assert "Содержание нормы 5 " not in texts
+
+
+def test_near_duplicate_under_new_title_is_stopped(real_store_client):
+    """Та же редакция под другим названием не должна задвоить базу."""
+    _upload(real_store_client, ARTICLES, title="Кодекс о недрах")
+    copy = ARTICLES.replace("Содержание нормы 5", "Изменённая норма 5")
+    response = _upload(real_store_client, copy, title="Кодекс (новая редакция)")
+
+    assert response.status_code == 409
+    assert "новая редакция" in response.json()["detail"]
+    assert "Кодекс о недрах" in response.json()["detail"]
+    assert len(real_store_client.store.list_documents()) == 1
+
+
+def test_different_document_is_accepted(real_store_client):
+    """Действительно другой акт проходит без вопросов."""
+    _upload(real_store_client, ARTICLES, title="Кодекс о недрах")
+    other = "\n".join(
+        f"Статья {n}. Правило {n}\n1. Совсем другой текст правил о бурении скважин, "
+        f"конструкции и цементаже обсадных колонн, пункт {n}."
+        for n in range(1, 21)
+    )
+    response = _upload(real_store_client, other, title="Правила бурения")
+    assert response.status_code == 200, response.text
+    assert len(real_store_client.store.list_documents()) == 2
+
+
+def test_force_new_overrides_similarity_check(real_store_client):
+    _upload(real_store_client, ARTICLES, title="Кодекс о недрах")
+    response = _upload(
+        real_store_client, ARTICLES, title="Кодекс, копия для сравнения", force_new="true"
+    )
+    assert response.status_code == 200
+    assert len(real_store_client.store.list_documents()) == 2
+
+
+def test_replace_unknown_document_is_404(real_store_client):
+    assert _upload(real_store_client, ARTICLES, replace_id="нет-такого").status_code == 404

@@ -321,7 +321,7 @@ docker run -d -p 8000:8000 -v subsoil-data:/data --env-file .env subsoil-rag
 | GET | `/api/admin/model-status` | токен | живая проверка ключа Anthropic |
 | GET | `/api/admin/topics` | токен | темы, которые можно не индексировать |
 | GET | `/api/admin/feedback` | токен | оценки пользователей (`?rating=down`) |
-| POST | `/api/admin/documents` | токен | загрузка (`file`, `title`, `note`, `replace`, `exclude_topics`) |
+| POST | `/api/admin/documents` | токен | загрузка (`file`, `title`, `note`, `exclude_topics`; `replace_id` — заменить редакцию, `force_new` — отключить проверку на дубль) |
 | DELETE | `/api/admin/documents/{id}` | токен | удаление документа и его векторов |
 | POST | `/api/admin/search` | токен | отладка ретривера без вызова модели |
 

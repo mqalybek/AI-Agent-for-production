@@ -60,6 +60,11 @@ app = FastAPI(
 
 _bearer = HTTPBearer(auto_error=False)
 
+# С какой доли совпадающих фрагментов файл считается новой редакцией уже
+# загруженного документа. Редакции кодекса совпадают на 80–100%, разные акты —
+# на единицы процентов (общие оговорки и определения).
+SIMILARITY_THRESHOLD = 0.5
+
 
 def require_admin(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
@@ -220,8 +225,20 @@ async def upload_document(
     note: str = Form(""),
     replace: bool = Form(False),
     exclude_topics: str = Form(""),
+    replace_id: str = Form(""),
+    force_new: bool = Form(False),
 ) -> UploadResponse:
-    """Загрузить новый документ или обновить существующий (по совпадению названия).
+    """Загрузить новый документ или новую редакцию уже загруженного.
+
+    ``replace_id`` — идентификатор документа, который заменяет этот файл: его
+    фрагменты удаляются, на их место встаёт новая редакция, название можно
+    сменить. Без него замена срабатывает по совпадению названия и флагу
+    ``replace`` — так было в прежних версиях.
+
+    Если файл почти совпадает с уже загруженным документом, а замена не
+    указана, загрузка останавливается: две редакции одного акта в индексе
+    дают модели рядом действующую и отменённую норму. ``force_new`` снимает
+    эту проверку для действительно разных документов.
 
     ``exclude_topics`` — список тем через запятую (см. GET /api/admin/topics).
     Разделы и главы с такими заголовками не попадают в индекс: так ассистент по
@@ -252,13 +269,22 @@ async def upload_document(
 
     store = get_store()
     doc_title = (title or Path(filename).stem).strip()
-    existing = store.find_by_title(doc_title)
-    if existing and not replace:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Документ «{doc_title}» уже загружен. "
-            "Включите «Обновить существующий», чтобы переиндексировать его.",
-        )
+    if replace_id:
+        existing = store.get_document(replace_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Заменяемый документ не найден.")
+        if not title.strip():
+            # Название попадает в ссылки на источник; новая редакция не должна
+            # молча переименоваться в имя файла вроде «k1700000125.rus».
+            doc_title = existing["title"]
+    else:
+        existing = store.find_by_title(doc_title)
+        if existing and not replace:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Документ «{doc_title}» уже загружен. Выберите его в поле "
+                "«Новая редакция документа», чтобы заменить.",
+            )
 
     doc_id = existing["id"] if existing else uuid.uuid4().hex
     target = store.upload_dir / f"{doc_id}_{filename}"
@@ -277,6 +303,18 @@ async def upload_document(
         chunks, dropped = load_and_chunk(
             target, settings.chunk_size, settings.chunk_overlap, topics
         )
+        if not existing and not force_new:
+            similar = store.find_similar(chunks)
+            if similar and similar["share"] >= SIMILARITY_THRESHOLD:
+                target.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Файл на {round(similar['share'] * 100)}% совпадает с документом "
+                    f"«{similar['document']['title']}» — похоже, это его новая редакция. "
+                    "Выберите этот документ в поле «Новая редакция документа», чтобы "
+                    "заменить старую версию. Если это действительно отдельный документ, "
+                    "отметьте «Это отдельный документ».",
+                )
         pages = max((c.page for c in chunks if c.page), default=None)
         record = store.add_document(
             title=doc_title,
@@ -295,6 +333,11 @@ async def upload_document(
     except ValueError as exc:
         target.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    # Исходник прошлой редакции больше не нужен: индекс уже переписан.
+    for stale in store.upload_dir.glob(f"{doc_id}_*"):
+        if stale != target:
+            stale.unlink(missing_ok=True)
 
     return UploadResponse(document=DocumentInfo(**record), replaced=bool(existing))
 
