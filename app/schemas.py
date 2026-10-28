@@ -88,11 +88,30 @@ class DocumentInfo(BaseModel):
     dropped_sections: List[str] = Field(
         default_factory=list, description="Заголовки выброшенных разделов"
     )
+    previous: Optional[dict] = Field(
+        None, description="Предыдущая редакция, к которой можно откатиться"
+    )
+
+
+class ChangeReport(BaseModel):
+    """Что изменилось в новой редакции — по статьям и пунктам."""
+
+    changed: List[str] = Field(default_factory=list)
+    added: List[str] = Field(default_factory=list)
+    removed: List[str] = Field(default_factory=list)
+    unchanged: int = 0
 
 
 class UploadResponse(BaseModel):
     document: DocumentInfo
     replaced: bool = False
+    auto_detected: bool = Field(
+        False, description="True, если система сама поняла, какую редакцию заменяет файл"
+    )
+    similarity: Optional[float] = Field(
+        None, description="Доля текста, совпавшего с прежней редакцией"
+    )
+    changes: Optional[ChangeReport] = None
 
 
 class ModelUsage(BaseModel):

@@ -21,6 +21,7 @@ from .rag import answer_question, check_connection, search_only
 from .schemas import (
     AskRequest,
     AskResponse,
+    ChangeReport,
     ConversationResponse,
     DocumentInfo,
     FeedbackRecord,
@@ -60,9 +61,10 @@ app = FastAPI(
 
 _bearer = HTTPBearer(auto_error=False)
 
-# С какой доли совпадающих фрагментов файл считается новой редакцией уже
-# загруженного документа. Редакции кодекса совпадают на 80–100%, разные акты —
-# на единицы процентов (общие оговорки и определения).
+# С какой доли совпадающего текста файл считается новой редакцией уже
+# загруженного документа. Замер на настоящих актах: редакция Кодекса даже с
+# перенумерацией статей совпадает со старой на 99%, Кодекс и Единые правила
+# между собой — на 2–7%. Порог посередине оставляет большой запас.
 SIMILARITY_THRESHOLD = 0.5
 
 
@@ -228,21 +230,18 @@ async def upload_document(
     replace_id: str = Form(""),
     force_new: bool = Form(False),
 ) -> UploadResponse:
-    """Загрузить новый документ или новую редакцию уже загруженного.
+    """Загрузить документ. Новую редакцию уже загруженного система узнаёт сама.
 
-    ``replace_id`` — идентификатор документа, который заменяет этот файл: его
-    фрагменты удаляются, на их место встаёт новая редакция, название можно
-    сменить. Без него замена срабатывает по совпадению названия и флагу
-    ``replace`` — так было в прежних версиях.
+    Достаточно прикрепить файл: если его текст в основном совпадает с одним из
+    загруженных документов (порог ``SIMILARITY_THRESHOLD``), это новая
+    редакция — старая версия уходит в архив, на её место встаёт новая, в ответ
+    приходит перечень изменённых, добавленных и удалённых статей. Откатить
+    замену можно через POST /api/admin/documents/{id}/rollback.
 
-    Если файл почти совпадает с уже загруженным документом, а замена не
-    указана, загрузка останавливается: две редакции одного акта в индексе
-    дают модели рядом действующую и отменённую норму. ``force_new`` снимает
-    эту проверку для действительно разных документов.
-
-    ``exclude_topics`` — список тем через запятую (см. GET /api/admin/topics).
-    Разделы и главы с такими заголовками не попадают в индекс: так ассистент по
-    углеводородам не отвечает нормами про уран или твёрдые полезные ископаемые.
+    ``replace_id`` — указать заменяемый документ явно. ``force_new`` — считать
+    файл отдельным документом, даже если он похож на загруженный.
+    ``exclude_topics`` — темы через запятую (GET /api/admin/topics); у новой
+    редакции берутся темы, с которыми индексировалась прежняя.
     """
     if settings.lite_index:
         # В serverless-режиме индекс приезжает вместе с кодом, а диск доступен
@@ -250,8 +249,8 @@ async def upload_document(
         raise HTTPException(
             status_code=503,
             detail="Загрузка документов недоступна в облегчённом режиме. "
-            "Добавьте документ в локальной версии, пересоберите индекс "
-            "(python scripts/export_lite_index.py) и разверните заново.",
+            "Добавьте документ в локальной версии и запушьте изменения — "
+            "индекс для сайта обновится автоматически.",
         )
     try:
         topics = resolve_topics(exclude_topics.split(","))
@@ -268,78 +267,168 @@ async def upload_document(
         )
 
     store = get_store()
-    doc_title = (title or Path(filename).stem).strip()
+    existing = None
     if replace_id:
         existing = store.get_document(replace_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Заменяемый документ не найден.")
-        if not title.strip():
-            # Название попадает в ссылки на источник; новая редакция не должна
-            # молча переименоваться в имя файла вроде «k1700000125.rus».
-            doc_title = existing["title"]
-    else:
-        existing = store.find_by_title(doc_title)
-        if existing and not replace:
+    elif title.strip():
+        existing = store.find_by_title(title.strip())
+        if existing and not replace and force_new:
             raise HTTPException(
                 status_code=409,
-                detail=f"Документ «{doc_title}» уже загружен. Выберите его в поле "
-                "«Новая редакция документа», чтобы заменить.",
+                detail=f"Документ «{existing['title']}» уже загружен — "
+                "отдельный документ должен называться иначе.",
             )
 
-    doc_id = existing["id"] if existing else uuid.uuid4().hex
-    target = store.upload_dir / f"{doc_id}_{filename}"
-    with target.open("wb") as out:
+    # Пока неизвестно, новый это документ или редакция старого, файл лежит под
+    # временным именем.
+    incoming = store.upload_dir / f"incoming_{uuid.uuid4().hex}_{filename}"
+    with incoming.open("wb") as out:
         shutil.copyfileobj(file.file, out)
 
-    size_bytes = target.stat().st_size
-    limit = settings.max_upload_mb * 1024 * 1024
-    if size_bytes > limit:
-        target.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=413, detail=f"Файл больше {settings.max_upload_mb} МБ."
-        )
-
     try:
+        size_bytes = incoming.stat().st_size
+        if size_bytes > settings.max_upload_mb * 1024 * 1024:
+            raise HTTPException(
+                status_code=413, detail=f"Файл больше {settings.max_upload_mb} МБ."
+            )
+
         chunks, dropped = load_and_chunk(
-            target, settings.chunk_size, settings.chunk_overlap, topics
+            incoming, settings.chunk_size, settings.chunk_overlap, topics
         )
-        if not existing and not force_new:
+        if not chunks:
+            raise ValueError("Из файла не удалось извлечь текст (возможно, это скан).")
+
+        auto_detected = False
+        similarity = None
+        if existing is None and not force_new:
             similar = store.find_similar(chunks)
             if similar and similar["share"] >= SIMILARITY_THRESHOLD:
-                target.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Файл на {round(similar['share'] * 100)}% совпадает с документом "
-                    f"«{similar['document']['title']}» — похоже, это его новая редакция. "
-                    "Выберите этот документ в поле «Новая редакция документа», чтобы "
-                    "заменить старую версию. Если это действительно отдельный документ, "
-                    "отметьте «Это отдельный документ».",
+                existing = similar["document"]
+                similarity = similar["share"]
+                auto_detected = True
+
+        changes = None
+        previous = None
+        if existing:
+            # Новая редакция индексируется с теми же исключёнными темами, что
+            # и прежняя: иначе в базу вернулись бы, например, разделы про уран.
+            old_topics = existing.get("excluded_topics") or []
+            if not replace_id and sorted(old_topics) != sorted(topics):
+                topics = old_topics
+                chunks, dropped = load_and_chunk(
+                    incoming, settings.chunk_size, settings.chunk_overlap, topics
                 )
-        pages = max((c.page for c in chunks if c.page), default=None)
+            changes = store.diff_versions(existing["id"], chunks)
+            previous = {
+                "title": existing["title"],
+                "filename": existing["filename"],
+                "note": existing.get("note", ""),
+                "uploaded_at": existing.get("uploaded_at", ""),
+                "excluded_topics": existing.get("excluded_topics") or [],
+                "archive_path": store.archive_file(existing["id"], existing["filename"]),
+            }
+            doc_id = existing["id"]
+            doc_title = title.strip() if replace_id and title.strip() else existing["title"]
+            doc_note = note.strip() or f"редакция загружена {_today()}"
+        else:
+            doc_id = uuid.uuid4().hex
+            doc_title = (title or Path(filename).stem).strip()
+            doc_note = note.strip()
+
+        target = store.upload_dir / f"{doc_id}_{filename}"
+        incoming.replace(target)
         record = store.add_document(
             title=doc_title,
             filename=filename,
             chunks=chunks,
             size_bytes=size_bytes,
-            pages=pages,
-            note=note.strip(),
+            pages=max((c.page for c in chunks if c.page), default=None),
+            note=doc_note,
             doc_id=doc_id,
             excluded_topics=topics,
             dropped_sections=[d.heading for d in dropped],
+            previous=previous,
         )
     except UnsupportedFormat as exc:
-        target.unlink(missing_ok=True)
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     except ValueError as exc:
-        target.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        incoming.unlink(missing_ok=True)
 
-    # Исходник прошлой редакции больше не нужен: индекс уже переписан.
-    for stale in store.upload_dir.glob(f"{doc_id}_*"):
-        if stale != target:
-            stale.unlink(missing_ok=True)
+    _refresh_lite_index(store)
+    return UploadResponse(
+        document=DocumentInfo(**record),
+        replaced=bool(existing),
+        auto_detected=auto_detected,
+        similarity=round(similarity, 3) if similarity is not None else None,
+        changes=ChangeReport(**changes) if changes else None,
+    )
 
-    return UploadResponse(document=DocumentInfo(**record), replaced=bool(existing))
+
+@app.post(
+    "/api/admin/documents/{doc_id}/rollback",
+    response_model=UploadResponse,
+    dependencies=[Depends(require_admin)],
+)
+def rollback_document(doc_id: str) -> UploadResponse:
+    """Вернуть предыдущую редакцию. Текущая при этом сама становится предыдущей."""
+    if settings.lite_index:
+        raise HTTPException(status_code=503, detail="Откат недоступен в облегчённом режиме.")
+    store = get_store()
+    current = store.get_document(doc_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Документ не найден.")
+    previous = current.get("previous") or {}
+    archived = store.upload_dir / previous["archive_path"] if previous.get("archive_path") else None
+    if archived is None or not archived.exists():
+        raise HTTPException(status_code=404, detail="Предыдущей редакции нет — откатывать некуда.")
+
+    chunks, dropped = load_and_chunk(
+        archived, settings.chunk_size, settings.chunk_overlap, previous.get("excluded_topics") or []
+    )
+    changes = store.diff_versions(doc_id, chunks)
+    swapped = {
+        "title": current["title"],
+        "filename": current["filename"],
+        "note": current.get("note", ""),
+        "uploaded_at": current.get("uploaded_at", ""),
+        "excluded_topics": current.get("excluded_topics") or [],
+        "archive_path": store.archive_file(doc_id, current["filename"]),
+    }
+    archived.replace(store.upload_dir / f"{doc_id}_{previous['filename']}")
+    record = store.add_document(
+        title=previous["title"],
+        filename=previous["filename"],
+        chunks=chunks,
+        size_bytes=(store.upload_dir / f"{doc_id}_{previous['filename']}").stat().st_size,
+        pages=max((c.page for c in chunks if c.page), default=None),
+        note=previous.get("note", ""),
+        doc_id=doc_id,
+        excluded_topics=previous.get("excluded_topics") or [],
+        dropped_sections=[d.heading for d in dropped],
+        previous=swapped,
+    )
+    _refresh_lite_index(store)
+    return UploadResponse(
+        document=DocumentInfo(**record), replaced=True, changes=ChangeReport(**changes)
+    )
+
+
+def _today() -> str:
+    from datetime import date
+
+    return date.today().strftime("%d.%m.%Y")
+
+
+def _refresh_lite_index(store) -> None:
+    """Переписать индекс для serverless-версии: сайту на Vercel хватит git push."""
+    try:
+        store.export_lite_index()
+    except Exception:  # noqa: BLE001 — сбой выгрузки не должен отменять загрузку
+        logger.exception("Не удалось обновить индекс для serverless-версии")
 
 
 @app.delete("/api/admin/documents/{doc_id}", dependencies=[Depends(require_admin)])
@@ -350,8 +439,10 @@ def delete_document(doc_id: str) -> dict:
             detail="Удаление документов недоступно в облегчённом режиме: "
             "индекс собирается локально и разворачивается вместе с кодом.",
         )
-    if not get_store().delete_document(doc_id):
+    store = get_store()
+    if not store.delete_document(doc_id):
         raise HTTPException(status_code=404, detail="Документ не найден.")
+    _refresh_lite_index(store)
     return {"deleted": doc_id}
 
 

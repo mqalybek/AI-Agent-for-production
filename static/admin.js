@@ -115,6 +115,75 @@
 
   const thousands = (n) => n.toLocaleString('ru-RU');
 
+  /* Отчёт после загрузки: что система поняла и что поменяла. Для новой
+     редакции — какие статьи изменились, добавились и исчезли. */
+  function listLine(label, items) {
+    const line = document.createElement('div');
+    if (!items.length) return null;
+    const shown = items.slice(0, 15).join(', ');
+    const more = items.length > 15 ? ` и ещё ${items.length - 15}` : '';
+    line.textContent = `${label} (${items.length}): ${shown}${more}`;
+    return line;
+  }
+
+  function renderUploadReport(result) {
+    const box = $('upload-status');
+    box.textContent = '';
+    box.className = 'status ok';
+    const doc = result.document;
+
+    const head = document.createElement('div');
+    head.style.fontWeight = '600';
+    if (result.auto_detected) {
+      head.textContent =
+        `Распознана новая редакция «${doc.title}» ` +
+        `(совпадает ${Math.floor(result.similarity * 100)}% текста). Старая версия заменена.`;
+    } else if (result.replaced) {
+      head.textContent = `Обновлён «${doc.title}».`;
+    } else {
+      head.textContent = `Загружен новый документ «${doc.title}»: ${doc.chunks} фрагментов.`;
+    }
+    box.appendChild(head);
+
+    const changes = result.changes;
+    if (changes) {
+      const total = changes.changed.length + changes.added.length + changes.removed.length;
+      if (!total) {
+        const same = document.createElement('div');
+        same.textContent = 'Текст статей не изменился.';
+        box.appendChild(same);
+      }
+      [
+        listLine('Изменены', changes.changed),
+        listLine('Добавлены', changes.added),
+        listLine('Удалены', changes.removed),
+      ].forEach((line) => line && box.appendChild(line));
+    }
+
+    if (doc.previous) {
+      const undo = document.createElement('button');
+      undo.type = 'button';
+      undo.className = 'ghost';
+      undo.style.marginTop = '10px';
+      undo.textContent = 'Отменить — вернуть прежнюю редакцию';
+      undo.addEventListener('click', () => rollback(doc.id, doc.title));
+      box.appendChild(undo);
+    }
+  }
+
+  async function rollback(docId, title) {
+    if (!confirm(`Вернуть предыдущую редакцию «${title}»?`)) return;
+    try {
+      const result = await api(`/api/admin/documents/${docId}/rollback`, { method: 'POST' });
+      renderUploadReport(result);
+      $('upload-status').firstChild.textContent =
+        `Возвращена предыдущая редакция «${result.document.title}».`;
+      await refresh();
+    } catch (err) {
+      setStatus($('upload-status'), err.message, 'err');
+    }
+  }
+
   /* Список «Новая редакция документа»: замена выбирается явно, а не по
      совпадению названия — иначе опечатка в названии оставит в базе обе
      редакции, и ассистент начнёт цитировать отменённую норму. */
@@ -124,7 +193,7 @@
     select.textContent = '';
     const none = document.createElement('option');
     none.value = '';
-    none.textContent = '— нет, это новый документ —';
+    none.textContent = '— система определит сама —';
     select.appendChild(none);
     docs.forEach((doc) => {
       const option = document.createElement('option');
@@ -221,6 +290,15 @@
           setStatus($('docs-status'), err.message, 'err');
         }
       });
+      if (doc.previous) {
+        const undo = document.createElement('button');
+        undo.className = 'ghost';
+        undo.textContent = 'Откатить';
+        undo.title = `Вернуть редакцию: ${doc.previous.note || doc.previous.uploaded_at}`;
+        undo.style.marginRight = '6px';
+        undo.addEventListener('click', () => rollback(doc.id, doc.title));
+        actions.appendChild(undo);
+      }
       actions.appendChild(del);
       [title, file, chunks, date, actions].forEach((cell) => tr.appendChild(cell));
       body.appendChild(tr);
@@ -276,12 +354,7 @@
     setStatus($('upload-status'), 'Индексирую документ, это может занять минуту…', null);
     try {
       const result = await api('/api/admin/documents', { method: 'POST', body: form });
-      setStatus(
-        $('upload-status'),
-        `${result.replaced ? 'Обновлён' : 'Загружен'} «${result.document.title}»: ` +
-        `${result.document.chunks} фрагментов.`,
-        'ok'
-      );
+      renderUploadReport(result);
       $('upload-form').reset();
       await loadTopics();
       await refresh();

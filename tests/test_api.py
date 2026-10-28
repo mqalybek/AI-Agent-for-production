@@ -285,16 +285,90 @@ def test_new_edition_replaces_old_one(real_store_client):
     assert "Содержание нормы 5 " not in texts
 
 
-def test_near_duplicate_under_new_title_is_stopped(real_store_client):
-    """Та же редакция под другим названием не должна задвоить базу."""
-    _upload(real_store_client, ARTICLES, title="Кодекс о недрах")
-    copy = ARTICLES.replace("Содержание нормы 5", "Изменённая норма 5")
-    response = _upload(real_store_client, copy, title="Кодекс (новая редакция)")
+def test_new_edition_is_recognised_without_any_hints(real_store_client):
+    """Просто прикрепили файл: система сама находит, какую редакцию он заменяет."""
+    first = _upload(real_store_client, ARTICLES, title="Кодекс о недрах").json()
+    doc_id = first["document"]["id"]
 
-    assert response.status_code == 409
-    assert "новая редакция" in response.json()["detail"]
-    assert "Кодекс о недрах" in response.json()["detail"]
+    edition = (
+        ARTICLES.replace("Содержание нормы 5 ", "Изменённое содержание нормы 5 ")
+        .replace(
+            "Статья 20. Норма номер 20\n1. Содержание нормы 20 о недропользовании "
+            "углеводородов, достаточно длинное, чтобы стать отдельным фрагментом.",
+            "",
+        )
+        + "\nСтатья 21. Новая норма\n1. Недропользователь передаёт данные в цифровой "
+        "реестр в электронной форме в установленные сроки."
+    )
+    response = _upload(real_store_client, edition)  # ни названия, ни выбора
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["auto_detected"] is True
+    assert body["replaced"] is True
+    assert body["similarity"] > 0.8
+    assert body["document"]["id"] == doc_id
+    assert body["document"]["title"] == "Кодекс о недрах"
+    assert body["document"]["note"].startswith("редакция загружена")
+    assert body["changes"]["changed"] == ["Статья 5"]
+    assert body["changes"]["added"] == ["Статья 21"]
+    assert body["changes"]["removed"] == ["Статья 20"]
     assert len(real_store_client.store.list_documents()) == 1
+
+
+def test_rollback_restores_previous_edition(real_store_client):
+    """Автозамену можно отменить одной кнопкой — и вернуть обратно."""
+    doc_id = _upload(real_store_client, ARTICLES, title="Кодекс о недрах").json()["document"]["id"]
+    edition = ARTICLES.replace("Содержание нормы 5 ", "НОВОЕ содержание нормы 5 ")
+    _upload(real_store_client, edition)
+
+    def texts():
+        return " ".join(real_store_client.store._collection.get(include=["documents"])["documents"])
+
+    assert "НОВОЕ содержание нормы 5" in texts()
+
+    headers = {"Authorization": "Bearer test-token"}
+    back = real_store_client.post(f"/api/admin/documents/{doc_id}/rollback", headers=headers)
+    assert back.status_code == 200, back.text
+    assert "НОВОЕ содержание нормы 5" not in texts()
+    assert back.json()["changes"]["changed"] == ["Статья 5"]
+
+    # Откат симметричен: текущая редакция стала предыдущей, можно вернуть её.
+    again = real_store_client.post(f"/api/admin/documents/{doc_id}/rollback", headers=headers)
+    assert again.status_code == 200
+    assert "НОВОЕ содержание нормы 5" in texts()
+
+
+def test_rollback_without_previous_edition_is_404(real_store_client):
+    doc_id = _upload(real_store_client, ARTICLES, title="Кодекс").json()["document"]["id"]
+    response = real_store_client.post(
+        f"/api/admin/documents/{doc_id}/rollback",
+        headers={"Authorization": "Bearer test-token"},
+    )
+    assert response.status_code == 404
+
+
+def test_new_edition_keeps_excluded_topics(real_store_client):
+    """Разделы про уран не возвращаются в базу вместе с новой редакцией."""
+    with_uranium = ARTICLES + "\nРАЗДЕЛ VIII. ДОБЫЧА УРАНА\nСтатья 50. Уран\n1. Добыча урана " \
+        "методом подземного скважинного выщелачивания проводится по проекту."
+    _upload(real_store_client, with_uranium, title="Кодекс", exclude_topics="uranium")
+    # Новая редакция приходит с пустым списком тем — как если бы галочки сняли.
+    _upload(real_store_client, with_uranium.replace("нормы 3 ", "нормы три "), exclude_topics="")
+    texts = " ".join(real_store_client.store._collection.get(include=["documents"])["documents"])
+    assert "выщелачивания" not in texts
+
+
+def test_lite_index_is_refreshed_after_upload(real_store_client):
+    """После загрузки индекс для Vercel переписан — остаётся только git push."""
+    import gzip
+    import json
+
+    _upload(real_store_client, ARTICLES, title="Кодекс")
+    path = real_store_client.store.chroma_dir.parent / "index_lite.json.gz"
+    with gzip.open(path, "rt", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    assert {chunk["title"] for chunk in payload["chunks"]} == {"Кодекс"}
 
 
 def test_different_document_is_accepted(real_store_client):

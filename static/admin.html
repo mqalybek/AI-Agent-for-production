@@ -62,7 +62,7 @@
         <input type="file" id="file" accept=".pdf,.docx,.txt,.md" required>
         <div class="row">
           <div>
-            <label for="title">Название документа (попадёт в ссылку на источник)</label>
+            <label for="title">Название (для нового документа; у редакции останется прежнее)</label>
             <input type="text" id="title" placeholder="Например: Кодекс о недрах и недропользовании">
           </div>
           <div>
@@ -70,18 +70,22 @@
             <input type="text" id="note" placeholder="Например: ред. от 01.01.2025">
           </div>
         </div>
-        <label for="replace-id">Новая редакция документа</label>
-        <select id="replace-id">
-          <option value="">— нет, это новый документ —</option>
-        </select>
-        <p class="muted" style="margin:4px 0 0">
-          Вышла новая редакция кодекса или правил? Выберите здесь старую версию:
-          она будет удалена из базы, и ответы пойдут только по новой.
+        <p class="muted" style="margin:10px 0 0">
+          Вышла новая редакция закона? Просто прикрепите файл: система сама
+          узнает документ, заменит старую версию и покажет, какие статьи
+          изменились. Прежняя редакция сохраняется — замену можно отменить.
         </p>
-        <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <input type="checkbox" id="force-new" style="width:auto">
-          Это отдельный документ, а не редакция уже загруженного
-        </label>
+        <details style="margin-top:8px">
+          <summary class="muted" style="cursor:pointer">Дополнительно</summary>
+          <label for="replace-id">Какой документ заменить</label>
+          <select id="replace-id">
+            <option value="">— система определит сама —</option>
+          </select>
+          <label style="display:flex;gap:8px;align-items:center;margin-top:12px">
+            <input type="checkbox" id="force-new" style="width:auto">
+            Это отдельный документ, а не редакция уже загруженного
+          </label>
+        </details>
 
         <label>Не индексировать разделы по темам</label>
         <div id="topics" class="muted">Загрузка…</div>

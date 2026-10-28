@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import logging
 import math
 import threading
@@ -39,6 +40,30 @@ def index_text(chunk: Chunk) -> str:
     """
     header = " ".join(part for part in (chunk.chapter, chunk.locator) if part)
     return f"{header}\n{chunk.text}" if header else chunk.text
+
+
+SHINGLE_SIZE = 5
+
+
+def shingles(texts) -> set:
+    """Множество пятисловных «черепиц» текста.
+
+    Сравнение по ним устойчиво к перенумерации статей и мелким правкам: новая
+    редакция Кодекса с перенумерованными статьями совпадает со старой на 99%,
+    а разные акты одной отрасли (Кодекс и Единые правила) — на 2–7%.
+    """
+    result = set()
+    for text in texts:
+        words = re.findall(r"\w+", text.casefold())
+        for start in range(len(words) - SHINGLE_SIZE + 1):
+            result.add(hash(" ".join(words[start : start + SHINGLE_SIZE])))
+    return result
+
+
+def _locator_key(locator: str):
+    """Сортировка «Статья 2» раньше «Статья 10»."""
+    number = re.search(r"\d+", locator)
+    return (re.sub(r"[\d\s.-]+", "", locator), int(number.group()) if number else 0, locator)
 
 
 def fingerprint(text: str) -> str:
@@ -102,27 +127,92 @@ class DocumentStore:
         return None
 
     def find_similar(self, chunks: List[Chunk]) -> Optional[dict]:
-        """Найти уже загруженный документ, с которым новый файл почти совпадает.
+        """Найти уже загруженный документ, новой редакцией которого является файл.
 
-        Новая редакция кодекса на девять десятых повторяет старую. Если её
-        загрузить как отдельный документ, в индексе окажутся обе версии, и
-        модель получит рядом действующую и отменённую норму. Поэтому сравниваем
-        отпечатки фрагментов: нарезка идёт по статьям, и неизменённые статьи
-        дают те же самые фрагменты.
+        Возвращает документ с наибольшей долей совпадающего текста. Решение,
+        считать ли файл новой редакцией, принимает вызывающий код по порогу.
         """
-        new_prints = {fingerprint(index_text(chunk)) for chunk in chunks}
-        if not new_prints:
+        new_shingles = shingles(index_text(chunk) for chunk in chunks)
+        if not new_shingles:
             return None
         best: Optional[dict] = None
         for doc in self._read_registry().values():
             stored = self._collection.get(where={"doc_id": doc["id"]}, include=["documents"])
-            old_prints = {fingerprint(text) for text in stored.get("documents") or []}
-            if not old_prints:
+            old_shingles = shingles(stored.get("documents") or [])
+            if not old_shingles:
                 continue
-            share = len(new_prints & old_prints) / len(new_prints)
+            share = len(new_shingles & old_shingles) / len(new_shingles)
             if best is None or share > best["share"]:
                 best = {"document": doc, "share": share}
         return best
+
+    def diff_versions(self, doc_id: str, chunks: List[Chunk]) -> dict:
+        """Что изменилось между загруженной редакцией и новой — по статьям и пунктам."""
+        stored = self._collection.get(where={"doc_id": doc_id}, include=["documents", "metadatas"])
+        old: Dict[str, set] = {}
+        for text, metadata in zip(stored.get("documents") or [], stored.get("metadatas") or []):
+            locator = (metadata or {}).get("locator", "")
+            if locator:
+                old.setdefault(locator, set()).add(fingerprint(text))
+        new: Dict[str, set] = {}
+        for chunk in chunks:
+            if chunk.locator:
+                new.setdefault(chunk.locator, set()).add(fingerprint(index_text(chunk)))
+
+        changed = sorted((loc for loc in old.keys() & new.keys() if old[loc] != new[loc]), key=_locator_key)
+        added = sorted(new.keys() - old.keys(), key=_locator_key)
+        removed = sorted(old.keys() - new.keys(), key=_locator_key)
+        return {
+            "changed": changed,
+            "added": added,
+            "removed": removed,
+            "unchanged": len(old.keys() & new.keys()) - len(changed),
+        }
+
+    def export_lite_index(self, target: Optional[Path] = None) -> Path:
+        """Выгрузить индекс в файл для serverless-версии (см. app/lite_store.py).
+
+        Вызывается после каждого изменения базы, поэтому для обновления сайта
+        на Vercel остаётся только запушить репозиторий.
+        """
+        import gzip
+
+        data = self._collection.get(include=["documents", "metadatas"])
+        chunks = []
+        for position, chunk_id in enumerate(data.get("ids") or []):
+            metadata = data["metadatas"][position] or {}
+            chunks.append(
+                {
+                    "id": chunk_id,
+                    "text": data["documents"][position],
+                    "title": metadata.get("title", ""),
+                    "doc_id": metadata.get("doc_id", ""),
+                    "locator": metadata.get("locator", ""),
+                    "chapter": metadata.get("chapter", ""),
+                    "page": metadata.get("page", -1),
+                }
+            )
+        chunks.sort(key=lambda chunk: (chunk["title"], chunk["id"]))
+        target = target or self.chroma_dir.parent / "index_lite.json.gz"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(target, "wt", encoding="utf-8") as handle:
+            handle.write(json.dumps({"version": 1, "chunks": chunks}, ensure_ascii=False))
+        return target
+
+    # ------------------------------------------------------------- архив
+    def archive_file(self, doc_id: str, filename: str) -> Optional[str]:
+        """Убрать исходник прошлой редакции в архив; вернуть путь относительно uploads."""
+        source = self.upload_dir / f"{doc_id}_{filename}"
+        if not source.exists():
+            return None
+        # Уникальный суффикс обязателен: замена и откат в пределах одной секунды
+        # иначе писали бы в один и тот же файл и затирали архивную редакцию.
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        relative = Path("archive") / doc_id / f"{stamp}_{uuid.uuid4().hex[:8]}_{filename}"
+        destination = self.upload_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        source.replace(destination)
+        return relative.as_posix()
 
     # ------------------------------------------------------------- индексация
     def add_document(
@@ -137,6 +227,7 @@ class DocumentStore:
         doc_id: Optional[str] = None,
         excluded_topics: Optional[List[str]] = None,
         dropped_sections: Optional[List[str]] = None,
+        previous: Optional[dict] = None,
     ) -> dict:
         if not chunks:
             raise ValueError("Из файла не удалось извлечь текст (возможно, это скан).")
@@ -181,6 +272,7 @@ class DocumentStore:
                 "note": note,
                 "excluded_topics": list(excluded_topics or []),
                 "dropped_sections": list(dropped_sections or []),
+                "previous": previous,
             }
             registry[doc_id] = record
             self._write_registry(registry)
